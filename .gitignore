@@ -29,9 +29,12 @@ venv/
 dist/
 build/
 
-# Node.js (if used by scripts)
+# Node.js / Bun
 node_modules/
 .npm/
+.bun/
+bun.lockb
+bun.lock
 .pnpm-store/
 .yarn/
 .yarn/cache/

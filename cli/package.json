@@ -1,5 +1,5 @@
 {
-  "name": "@my-skills/cli",
+  "name": "@agent-skillset/cli",
   "version": "1.0.0",
   "description": "CLI to manage and deploy AI agent skills",
   "type": "module",
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts"
+    "dev": "bun --watch run src/index.ts",
+    "lint": "bun run --bun tsc --noEmit"
   },
   "dependencies": {
     "@clack/prompts": "1.1.0",
@@ -16,7 +17,6 @@
     "fast-glob": "3.3.3",
     "fs-extra": "11.3.4",
     "log-symbols": "7.0.1",
-    "nanospinner": "1.2.2",
     "picocolors": "1.1.1",
     "zod": "4.3.6"
   },

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022"],
+    "exactOptionalPropertyTypes": true,
+    "resolveJsonModule": true,
+
+    // Bundler mode
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

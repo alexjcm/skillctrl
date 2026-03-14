@@ -1,0 +1,13 @@
+{
+  "$schema": "./skills.config.schema.json",
+  "excludedSkills": [
+    "arquitecture/component-common-domain-detection",
+    "arquitecture/component-flattening-analysis",
+    "arquitecture/component-identification-sizing",
+    "arquitecture/domain-analysis",
+    "arquitecture/domain-identification-grouping",
+    "tools/xsl-to-sql-detail",
+    "development/coding-guidelines",
+    "development/tlc-spec-driven"
+  ]
+}
