@@ -20,6 +20,7 @@ export const IDE_GLOBAL_PATHS = {
   antigravity: [path.join(env.HOME, ".gemini", "antigravity", "skills")],
   claude:      [path.join(env.HOME, ".claude", "skills")],
   cursor:      [path.join(env.HOME, ".cursor", "skills")],
+  codex:       [path.join(env.HOME, ".codex", "skills")],
 } as const satisfies Record<string, string[]>
 
 // ============================================================================
@@ -32,6 +33,7 @@ export const IDE_BASE_DIRS = {
   antigravity: path.join(env.HOME, ".gemini", "antigravity"),
   claude:      path.join(env.HOME, ".claude"),
   cursor:      path.join(env.HOME, ".cursor"),
+  codex:       path.join(env.HOME, ".codex"),
 } as const satisfies Record<string, string>
 
 // ============================================================================
@@ -44,6 +46,7 @@ export const IDE_PROJECT_PATHS = {
   antigravity: [path.join(".agent", "skills")],
   claude:      [path.join(".claude", "skills")],
   cursor:      [path.join(".cursor", "skills"), path.join(".agents", "skills")],
+  codex:       [path.join(".agents", "skills")],
 } as const satisfies Record<string, string[]>
 
 // ============================================================================
@@ -56,4 +59,5 @@ export const ALL_IDE_KEYS = [
   "antigravity",
   "claude",
   "cursor",
+  "codex",
 ] as const

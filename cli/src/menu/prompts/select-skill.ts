@@ -2,7 +2,6 @@ import * as clack from "@clack/prompts"
 import pc from "picocolors"
 import { discoverSkills } from "../../core/skills.ts"
 import type { Skill } from "../../core/types.ts"
-import { EXIT_CODES } from "../../core/exit-codes.ts"
 
 /**
  * Prompts the user to select a single skill.
@@ -10,7 +9,7 @@ import { EXIT_CODES } from "../../core/exit-codes.ts"
  * Shows name + description for richer context.
  * isCancel checked after every prompt.
  */
-export async function selectSkill(category?: string): Promise<Skill | undefined> {
+export async function selectSkill(category?: string, includeBack = false): Promise<Skill | "back" | undefined> {
   const skills = await discoverSkills(category ? [category] : undefined)
 
   if (skills.length === 0) {
@@ -18,18 +17,23 @@ export async function selectSkill(category?: string): Promise<Skill | undefined>
     return undefined
   }
 
+  const options = skills.map((s) => ({
+    value: s as Skill | "back",
+    label: category ? s.name : `${pc.dim(s.category + "/")}${s.name}`,
+    ...(s.description ? { hint: pc.dim(s.description) } : {}),
+  }))
+
+  if (includeBack) {
+    options.push({ value: "back", label: pc.dim("← Back") })
+  }
+
   const result = await clack.select({
     message: category ? `Select skill (${category}):` : "Select skill:",
-    options: skills.map((s) => ({
-      value: s,
-      label: category ? s.name : `${pc.dim(s.category + "/")}${s.name}`,
-      ...(s.description ? { hint: pc.dim(s.description) } : {}),
-    })),
+    options,
   })
 
   if (clack.isCancel(result)) {
-    clack.cancel("Cancelled")
-    process.exit(EXIT_CODES.CANCEL)
+    return undefined
   }
 
   return result
@@ -40,7 +44,7 @@ export async function selectSkill(category?: string): Promise<Skill | undefined>
  * Used in the "Deploy to project" flow.
  * isCancel checked after every prompt.
  */
-export async function multiSelectSkills(category?: string): Promise<Skill[]> {
+export async function multiSelectSkills(category?: string): Promise<Skill[] | undefined> {
   const skills = await discoverSkills(category ? [category] : undefined)
 
   if (skills.length === 0) {
@@ -59,8 +63,7 @@ export async function multiSelectSkills(category?: string): Promise<Skill[]> {
   })
 
   if (clack.isCancel(result)) {
-    clack.cancel("Cancelled")
-    process.exit(EXIT_CODES.CANCEL)
+    return undefined
   }
 
   return result

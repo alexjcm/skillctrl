@@ -2,6 +2,12 @@
 
 Centralized repository for managing AI agent skills.
 
+## Skills Directory (Centralized)
+
+The centralized skills directory is:
+
+`skills/` (at the root of this repository)
+
 ## Project Structure
 
 This repository is divided into two primary directories:
@@ -15,8 +21,7 @@ To add a new skill to your local toolkit:
 1. Navigate to the `skills/` directory and pick a relevant category (or create a new folder for a new category).
 2. Create a new folder for your skill (e.g., `skills/development/my-new-skill/`).
 3. Inside that folder, create a `SKILL.md` file following the standard agent skill format (include a YAML frontmatter with `name` and `description`).
-4. (Optional) Run `skills list` to verify your new skill is recognized.
-5. Deploy it using `skills deploy development/my-new-skill` or through the interactive `skills` menu.
+4. Open the interactive menu with `skills` (or `bun run src/index.ts` from `cli/`) to verify and deploy your skill.
 
 ## CLI Setup & Installation
 
@@ -43,48 +48,36 @@ The project includes a robust TypeScript CLI for managing and deploying skills t
    npm link
    ```
 
-*That's it!* The `skills` command is now available globally across your entire system. Any new skills you add later to the cloned `skills/` directory will be instantly picked up by the CLI.
+After setup, you can use the CLI in two ways:
+- Global command (if linked): `skills`
+- Local command from `cli/`: `bun run src/index.ts`
 
 ## Usage (Interactive Menu)
 
 The easiest way to perform any operation is via the interactive TUI (Terminal User Interface). Simply run:
 
 ```bash
+# global (if linked)
 skills
+
+# local (without global link)
+bun run src/index.ts
 ```
 
-This provides a guided wizard for all deployment scenarios, including category selection, IDE targeting, project/workspace path resolution, and automatic Git exclusion handling.
+This provides a guided wizard for deployment scenarios, including IDE targeting, project/workspace path resolution, and automatic Git exclusion handling.
+Each deployment flow supports cancelling and going back before applying changes.
+It also includes a `Doctor (diagnostics)` option to validate environment and writable target paths.
 
-## Usage (CLI Automation)
+## Usage (CLI Flags)
 
-For speed or scripting, you can bypass the menu using specific arguments:
-
-```bash
-# List all available skills grouped by category
-skills list
-
-# Deploy a single skill to all recognized IDEs
-skills deploy development/documenting-java-code
-
-# Deploy ALL skills to all recognized IDEs
-skills deploy all
-
-# Deploy a skill to a specific IDE (intellij, windsurf, antigravity, claude, cursor)
-skills deploy development/writing-junit-tests --ide claude
-
-# Deploy all skills to the current project/workspace directory ($PWD)
-skills deploy all --project
-
-# Deploy all skills to a specific project/workspace location
-skills deploy all --project ~/projects/my-app
-
-
-```
+The CLI now focuses on TUI usage. Available flags are:
+- Global: `-h, --help` and `-V, --version`
 
 ## Configuration
 
 ### Exclusions
-You can configure which skills to exclude from `--deploy all` operations by editing `cli/skills.config.json` without modifying the code.
+You can configure which skills to exclude from "deploy all skills" menu operations by editing `cli/skills.config.json` without modifying the code.
+If the config file is missing or invalid, the app falls back to no exclusions and continues safely.
 
 ### IDE Compatibility Paths
 
@@ -95,11 +88,14 @@ You can configure which skills to exclude from `--deploy all` operations by edit
 | **IntelliJ (Codeium)** | `~/.codeium/skills/` | `.windsurf/skills/` |
 | **Claude Code** | `~/.claude/skills/` | `.claude/skills/` |
 | **Cursor** | `~/.cursor/skills/` | `.cursor/skills/` + `.agents/skills/` |
+| **Codex** | `~/.codex/skills/` | `.agents/skills/` |
 
 ### Skills for Development
 
 - **[writing-junit-tests](skills/development/writing-junit-tests/SKILL.md)**: Generate, structure, and refine JUnit 4 tests for Java 8 applications.
 - **[documenting-java-code](skills/development/documenting-java-code/SKILL.md)**: Generates standard JavaDocs and adds explanatory comments for complex logic.
+
+The following skills were copied from the [Tech Leads Club](https://github.com/tech-leads-club/agent-skills):
 - **[coding-guidelines](skills/development/coding-guidelines/SKILL.md)**: Behavioral guidelines to reduce common LLM coding mistakes.
 - **[tlc-spec-driven](skills/development/tlc-spec-driven/SKILL.md)**: Project and feature planning with 4 phases - Specify, Design, Tasks, Implement+Validate. Stack-agnostic.
 
@@ -109,12 +105,13 @@ You can configure which skills to exclude from `--deploy all` operations by edit
 - **[safe-bash-scripting](skills/tools/safe-bash-scripting/SKILL.md)**: Standards and best practices for creating portable, safe, and maintainable Bash scripts.
 - **[xsl-to-sql-detail](skills/tools/xsl-to-sql-detail/SKILL.md)**: Embeds XSL content into SQL inserts for `SCHEMA.TABLE` (DB2 for IMB i).
 
-- The following skills were copied from the [official Anthropic repository](https://github.com/anthropics/skills/tree/main/skills):
+The following skills were copied from the [official Anthropic repository](https://github.com/anthropics/skills/tree/main/skills):
 - **[mcp-builder](skills/tools/mcp-builder/SKILL.md)**: Create and iterate on Model Context Protocol (MCP) servers.
 - **[skill-creator](skills/tools/skill-creator/SKILL.md)**: Design and build new skills for AI agents.
 
 ### Skills for Architecture
 
+The following skills were copied from the [Tech Leads Club](https://github.com/tech-leads-club/agent-skills):
 - **[component-identification-sizing](skills/arquitecture/component-identification-sizing/SKILL.md)**: Identifies architectural components and calculates size metrics for decomposition planning.
 - **[component-common-domain-detection](skills/arquitecture/component-common-domain-detection/SKILL.md)**: Identifies duplicate domain functionality and suggests consolidation opportunities.
 - **[component-flattening-analysis](skills/arquitecture/component-flattening-analysis/SKILL.md)**: Identifies and fixes component hierarchy issues (orphaned classes in root namespaces).
@@ -128,3 +125,4 @@ You can configure which skills to exclude from `--deploy all` operations by edit
 - Validate skills and generate prompt XML: https://github.com/agentskills/agentskills/tree/main/skills-ref
 - Skill creator: https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md
 - More sample skills: https://github.com/tech-leads-club/agent-skills/tree/main
+- Agent skills tool: https://github.com/vercel-labs/skills

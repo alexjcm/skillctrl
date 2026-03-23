@@ -126,27 +126,6 @@ export async function deployAllGlobal(
 }
 
 // ============================================================================
-// DEPLOY ALL — project
-// ============================================================================
-
-export async function deployAllToProject(
-  ides: IdeTarget[],
-  projectDir: string,
-  options: DeployOptions
-): Promise<DeployResult[]> {
-  const skills = await discoverSkills()
-  const results: DeployResult[] = []
-
-  for (const skill of skills) {
-    if (isExcluded(skill.ref, options.excludedRefs)) continue
-    const skillResults = await deploySkillToProject(skill, ides, projectDir)
-    results.push(...skillResults)
-  }
-
-  return results
-}
-
-// ============================================================================
 // LOAD SKILL REF — resolve a ref string to a Skill object
 // ============================================================================
 

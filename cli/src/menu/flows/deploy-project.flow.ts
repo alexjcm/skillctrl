@@ -6,9 +6,9 @@ import * as fs from "fs-extra"
 import { ALL_IDE_KEYS } from "../../core/config.ts"
 import { deploySkillToProject } from "../../core/deploy.ts"
 import type { IdeTarget, DeployResult } from "../../core/types.ts"
+import type { FlowResult } from "../flow-result.ts"
 import { selectIde } from "../prompts/select-ide.ts"
 import { multiSelectSkills } from "../prompts/select-skill.ts"
-import { EXIT_CODES } from "../../core/exit-codes.ts"
 import { log } from "../../ui/logger.ts"
 
 // ============================================================================
@@ -45,7 +45,17 @@ function renderMenuResults(results: DeployResult[]): void {
 // isCancel on every prompt
 // ============================================================================
 
-export async function deployToProjectFlow(excludedRefs: string[]): Promise<void> {
+export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowResult> {
+  const startResult = await clack.select({
+    message: "Deploy to project/workspace:",
+    options: [
+      { value: "continue", label: "Continue" },
+      { value: "back", label: pc.dim("← Back") },
+    ],
+  })
+  if (clack.isCancel(startResult)) return "cancelled"
+  if (startResult === "back") return "back"
+
   // Step 1: get project path (auto-detect if CWD is a project)
   const isGitRepo = await fs.pathExists(path.join(process.cwd(), ".git"))
   const isNpmProject = await fs.pathExists(path.join(process.cwd(), "package.json"))
@@ -63,22 +73,20 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<void>
   }
 
   const rawPath = await clack.text(promptOptions)
-  if (clack.isCancel(rawPath)) {
-    clack.cancel("Cancelled")
-    process.exit(EXIT_CODES.CANCEL)
-  }
+  if (clack.isCancel(rawPath)) return "cancelled"
 
   // use path.resolve, not concatenation
   const projectDir = path.resolve(rawPath.trim() || process.cwd())
 
   if (!(await fs.pathExists(projectDir))) {
     log.error(`Directory does not exist: ${projectDir}`)
-    return
+    return "cancelled"
   }
 
   // Step 2: select IDE
-  const ide = await selectIde(true)
-  if (!ide) return
+  const ide = await selectIde(true, true)
+  if (!ide) return "cancelled"
+  if (ide === "back") return "back"
 
   const ides: IdeTarget[] = ide === "all" ? [...ALL_IDE_KEYS] : [ide]
 
@@ -88,12 +96,11 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<void>
     options: [
       { value: "all", label: "All skills (excluding excluded)" },
       { value: "select", label: "Select specific skills" },
+      { value: "back", label: pc.dim("← Back") },
     ],
   })
-  if (clack.isCancel(scopeResult)) {
-    clack.cancel("Cancelled")
-    process.exit(EXIT_CODES.CANCEL)
-  }
+  if (clack.isCancel(scopeResult)) return "cancelled"
+  if (scopeResult === "back") return "back"
 
   let skills
   if (scopeResult === "all") {
@@ -102,17 +109,25 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<void>
     skills = all.filter((s) => !isExcluded(s.ref, excludedRefs))
   } else {
     skills = await multiSelectSkills()
-    if (skills.length === 0) return
+    if (!skills) return "cancelled"
+    if (skills.length === 0) return "cancelled"
+  }
+
+  log.step("Summary:")
+  log.bullet("Destination", projectDir)
+  log.bullet("IDEs", ide === "all" ? `all (${ALL_IDE_KEYS.join(", ")})` : ide)
+  log.bullet("Skills", String(skills.length))
+
+  log.step("Skills to deploy:")
+  for (const skill of skills) {
+    log.bullet(skill.ref)
   }
 
   // Step 4: confirm
   const confirmed = await clack.confirm({
     message: `Deploy ${pc.bold(String(skills.length))} skill${skills.length === 1 ? "" : "s"} to ${pc.bold(path.basename(projectDir))} [${ide}]?`,
   })
-  if (clack.isCancel(confirmed) || !confirmed) {
-    clack.cancel("Cancelled")
-    process.exit(EXIT_CODES.CANCEL)
-  }
+  if (clack.isCancel(confirmed) || !confirmed) return "cancelled"
 
   // Step 5: deploy
   const spin = clack.spinner()
@@ -165,4 +180,6 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<void>
       }
     }
   }
+
+  return "completed"
 }

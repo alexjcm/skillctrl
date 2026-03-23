@@ -1,4 +1,5 @@
 import path from "path"
+import os from "os"
 import * as fs from "fs-extra"
 
 // ============================================================================
@@ -19,7 +20,7 @@ export async function safeRm(
 
   const real = await fs.realpath(targetPath)
 
-  const homeDir = process.env["HOME"] ?? ""
+  const homeDir = os.homedir()
   if (real === "/" || real === homeDir) {
     throw new Error(`safeRm: dangerous path: ${real}`)
   }
@@ -54,7 +55,7 @@ export async function safeRmProject(
   const realTarget = await fs.realpath(targetPath)
   const realProject = await fs.realpath(projectDir)
 
-  const homeDir = process.env["HOME"] ?? ""
+  const homeDir = os.homedir()
   if (realTarget === "/" || realTarget === homeDir) {
     throw new Error(`safeRmProject: dangerous path: ${realTarget}`)
   }
