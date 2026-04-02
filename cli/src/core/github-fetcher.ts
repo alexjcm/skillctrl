@@ -15,6 +15,16 @@ export interface SkillCandidate {
   files: GitHubFile[]
 }
 
+export interface SkillCandidatePreview {
+  name: string
+  description?: string
+  remoteBasePath: string
+  canonicalUrl: string
+  owner: string
+  repo: string
+  branch: string
+}
+
 type GitHubContentFile = {
   type: "file"
   name: string
@@ -39,16 +49,82 @@ const MSG_PATH_NOT_FOUND = "Path not found. Check the URL and make sure the repo
 const MSG_RATE_LIMIT = "GitHub rate limit reached (60 req/hour). Please wait a few minutes and try again."
 const MSG_NO_SKILLS = "No skills found here. Each skill directory must contain a SKILL.md file."
 const MSG_NETWORK = "Could not reach GitHub. Check your internet connection."
+const MAX_CONCURRENT_REQUESTS = 8
 
 const REPO_SCAN_PATHS = ["skills", "skills/.curated", "skills/.system", "skills/.experimental", ""]
 
 class GitHubApiError extends Error {
   readonly status: number
+  readonly rateLimitResetAt: string | undefined
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, rateLimitResetAt?: string) {
     super(message)
     this.status = status
+    this.rateLimitResetAt = rateLimitResetAt
   }
+}
+
+function authHeaderFromEnv(): string | undefined {
+  const token = process.env["GITHUB_TOKEN"]?.trim()
+  return token ? `Bearer ${token}` : undefined
+}
+
+function buildGitHubHeaders(includeApiAccept = false): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (includeApiAccept) {
+    headers["Accept"] = "application/vnd.github+json"
+  }
+  const auth = authHeaderFromEnv()
+  if (auth) {
+    headers["Authorization"] = auth
+  }
+  return headers
+}
+
+function extractRateLimitResetIso(headers: Headers): string | undefined {
+  const epochRaw = headers.get("x-ratelimit-reset")
+  if (!epochRaw) return undefined
+  const epoch = Number(epochRaw)
+  if (!Number.isFinite(epoch) || epoch <= 0) return undefined
+  return new Date(epoch * 1000).toISOString()
+}
+
+function formatRateLimitRetryMessage(resetIso: string | undefined): string {
+  if (!resetIso) return MSG_RATE_LIMIT
+  const parsed = new Date(resetIso)
+  if (Number.isNaN(parsed.getTime())) {
+    return `${MSG_RATE_LIMIT} Retry after ${resetIso}.`
+  }
+  return `${MSG_RATE_LIMIT} Retry after ${resetIso} (local: ${parsed.toLocaleString()}).`
+}
+
+async function mapSettledWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  if (items.length === 0) return []
+
+  const results: PromiseSettledResult<R>[] = new Array(items.length)
+  let cursor = 0
+  const workerCount = Math.max(1, Math.min(concurrency, items.length))
+
+  async function runWorker(): Promise<void> {
+    while (true) {
+      const index = cursor
+      cursor++
+      if (index >= items.length) return
+      try {
+        const value = await worker(items[index] as T, index)
+        results[index] = { status: "fulfilled", value }
+      } catch (reason) {
+        results[index] = { status: "rejected", reason }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  return results
 }
 
 function normalizeRemotePath(remotePath: string): string {
@@ -79,9 +155,7 @@ async function fetchJson(url: string): Promise<unknown> {
   let response: Response
   try {
     response = await fetch(url, {
-      headers: {
-        Accept: "application/vnd.github+json",
-      },
+      headers: buildGitHubHeaders(true),
     })
   } catch {
     throw new Error(MSG_NETWORK)
@@ -98,7 +172,13 @@ async function fetchJson(url: string): Promise<unknown> {
       // ignore parse errors and keep fallback
     }
 
-    throw new GitHubApiError(response.status, message)
+    const remaining = response.headers.get("x-ratelimit-remaining")
+    const resetAt = extractRateLimitResetIso(response.headers)
+    if (response.status === 403 && (remaining === "0" || /rate limit/i.test(message))) {
+      throw new GitHubApiError(response.status, MSG_RATE_LIMIT, resetAt)
+    }
+
+    throw new GitHubApiError(response.status, message, resetAt)
   }
 
   return response.json()
@@ -107,13 +187,20 @@ async function fetchJson(url: string): Promise<unknown> {
 async function fetchText(url: string): Promise<string> {
   let response: Response
   try {
-    response = await fetch(url)
+    response = await fetch(url, {
+      headers: buildGitHubHeaders(false),
+    })
   } catch {
     throw new Error(MSG_NETWORK)
   }
 
   if (!response.ok) {
-    throw new GitHubApiError(response.status, `GitHub raw file request failed (${response.status})`)
+    const remaining = response.headers.get("x-ratelimit-remaining")
+    const resetAt = extractRateLimitResetIso(response.headers)
+    if (response.status === 403 && remaining === "0") {
+      throw new GitHubApiError(response.status, MSG_RATE_LIMIT, resetAt)
+    }
+    throw new GitHubApiError(response.status, `GitHub raw file request failed (${response.status})`, resetAt)
   }
 
   return response.text()
@@ -270,13 +357,15 @@ async function collectSkillRootsFromDirectory(
   // 2-level detection (current dir -> subdir -> child dir):
   // 1) If subdir has SKILL.md directly, it's a skill root.
   // 2) Otherwise, treat each child directory as a candidate root (container pattern).
-  const checks = await Promise.allSettled(
-    subdirs.map(async (subdirPath) => {
+  const checks = await mapSettledWithConcurrency(
+    subdirs,
+    MAX_CONCURRENT_REQUESTS,
+    async (subdirPath) => {
       const subListing = await getDirectoryListingOrNull(owner, repo, branch, subdirPath)
       if (!subListing) return [] as string[]
       if (directoryHasSkillMd(subListing)) return [normalizeRemotePath(subdirPath)]
       return listDirectoryPaths(subListing).map((p) => normalizeRemotePath(p))
-    })
+    }
   )
 
   const roots: string[] = []
@@ -295,7 +384,11 @@ async function fetchCandidatesFromRoots(
   branch: string,
   roots: string[]
 ): Promise<SkillCandidate[]> {
-  const results = await Promise.allSettled(roots.map((root) => fetchSkillCandidate(owner, repo, branch, root)))
+  const results = await mapSettledWithConcurrency(
+    roots,
+    MAX_CONCURRENT_REQUESTS,
+    async (root) => fetchSkillCandidate(owner, repo, branch, root)
+  )
   const candidates: SkillCandidate[] = []
   let firstNonSkillError: Error | null = null
 
@@ -327,12 +420,14 @@ async function fetchSkillFiles(owner: string, repo: string, branch: string, remo
   const rootFiles = listing.filter((entry): entry is GitHubContentFile => entry.type === "file")
   const subdirs = listing.filter((entry): entry is GitHubContentDir => entry.type === "dir")
 
-  const nestedResults = await Promise.allSettled(
-    subdirs.map(async (dir) => {
+  const nestedResults = await mapSettledWithConcurrency(
+    subdirs,
+    MAX_CONCURRENT_REQUESTS,
+    async (dir) => {
       const nestedPayload = await getContents(owner, repo, dir.path, branch)
       const nestedListing = toDirectoryListing(nestedPayload)
       return nestedListing.filter((entry): entry is GitHubContentFile => entry.type === "file")
-    })
+    }
   )
 
   const allFiles: GitHubContentFile[] = [...rootFiles]
@@ -385,49 +480,99 @@ async function fetchSkillCandidate(owner: string, repo: string, branch: string, 
   }
 }
 
-async function fetchPathLevelCandidates(ref: GitHubRef): Promise<SkillCandidate[]> {
-  if (!ref.branch) {
+function previewFromRoot(owner: string, repo: string, branch: string, remoteBasePath: string): SkillCandidatePreview {
+  const normalizedPath = normalizeRemotePath(remoteBasePath)
+  const name = normalizedPath ? path.basename(normalizedPath) : repo
+  return {
+    name,
+    remoteBasePath: normalizedPath,
+    canonicalUrl: canonicalSkillUrl(owner, repo, branch, normalizedPath),
+    owner,
+    repo,
+    branch,
+  }
+}
+
+async function fetchPreviewCandidatesFromRef(ref: GitHubRef): Promise<SkillCandidatePreview[]> {
+  const roots: string[] = []
+  if (!ref.isRepoLevel) {
+    if (!ref.branch) {
+      throw new Error(MSG_PATH_NOT_FOUND)
+    }
+    const branch = ref.branch
+    const targetPath = normalizeRemotePath(ref.path ?? "")
+    const payload = await getContents(ref.owner, ref.repo, targetPath, branch)
+
+    if (Array.isArray(payload)) {
+      const listing = toDirectoryListing(payload)
+      roots.push(...await collectSkillRootsFromDirectory(ref.owner, ref.repo, branch, targetPath, listing))
+    } else {
+      const file = toFile(payload)
+      if (file.name !== "SKILL.md") {
+        throw new Error(MSG_NO_SKILLS)
+      }
+      roots.push(normalizeRemotePath(path.posix.dirname(file.path) === "." ? "" : path.posix.dirname(file.path)))
+    }
+
+    let uniqueRoots = [...new Set(roots.filter((r) => r !== "" || targetPath === ""))]
+    if (uniqueRoots.length === 0 && targetPath === "skills") {
+      const fallbackResults = await mapSettledWithConcurrency(
+        ["skills/.curated", "skills/.system", "skills/.experimental"],
+        3,
+        async (location) => discoverSkillRootsAtLocation(ref.owner, ref.repo, branch, location)
+      )
+      const fallbackRoots: string[] = []
+      for (const result of fallbackResults) {
+        if (result.status === "fulfilled") fallbackRoots.push(...result.value)
+      }
+      uniqueRoots = [...new Set(fallbackRoots)]
+    }
+
+    if (uniqueRoots.length === 0) throw new Error(MSG_NO_SKILLS)
+    return uniqueRoots.map((root) => previewFromRoot(ref.owner, ref.repo, branch, root))
+  }
+
+  const repoInfo = await getRepoInfo(ref.owner, ref.repo)
+  const defaultBranch = repoInfo.default_branch?.trim()
+  if (!defaultBranch) {
     throw new Error(MSG_PATH_NOT_FOUND)
   }
-  const branch = ref.branch
 
-  const targetPath = normalizeRemotePath(ref.path ?? "")
-  const payload = await getContents(ref.owner, ref.repo, targetPath, branch)
+  const probeResults = await mapSettledWithConcurrency(
+    REPO_SCAN_PATHS,
+    REPO_SCAN_PATHS.length,
+    async (location) => discoverSkillRootsAtLocation(ref.owner, ref.repo, defaultBranch, location)
+  )
 
-  const roots: string[] = []
-
-  if (Array.isArray(payload)) {
-    const listing = toDirectoryListing(payload)
-    roots.push(...await collectSkillRootsFromDirectory(ref.owner, ref.repo, branch, targetPath, listing))
-  } else {
-    const file = toFile(payload)
-    if (file.name !== "SKILL.md") {
-      throw new Error(MSG_NO_SKILLS)
-    }
-    roots.push(normalizeRemotePath(path.posix.dirname(file.path) === "." ? "" : path.posix.dirname(file.path)))
+  const orderedRoots: string[] = []
+  for (const result of probeResults) {
+    if (result.status === "fulfilled") orderedRoots.push(...result.value)
   }
-
-  let uniqueRoots = [...new Set(roots.filter((r) => r !== "" || targetPath === ""))]
-  if (uniqueRoots.length === 0 && targetPath === "skills") {
-    // Fallback for container roots such as openai/skills/tree/main/skills.
-    const fallbackResults = await Promise.allSettled(
-      ["skills/.curated", "skills/.system", "skills/.experimental"]
-        .map((location) => discoverSkillRootsAtLocation(ref.owner, ref.repo, branch, location))
-    )
-    const fallbackRoots: string[] = []
-    for (const result of fallbackResults) {
-      if (result.status === "fulfilled") {
-        fallbackRoots.push(...result.value)
-      }
-    }
-    uniqueRoots = [...new Set(fallbackRoots)]
-  }
-
+  const uniqueRoots = [...new Set(orderedRoots)]
   if (uniqueRoots.length === 0) {
     throw new Error(MSG_NO_SKILLS)
   }
 
-  return fetchCandidatesFromRoots(ref.owner, ref.repo, branch, uniqueRoots)
+  const previews = uniqueRoots.map((root) => previewFromRoot(ref.owner, ref.repo, defaultBranch, root))
+  const byName = new Map<string, SkillCandidatePreview>()
+  for (const preview of previews) {
+    if (!byName.has(preview.name)) {
+      byName.set(preview.name, preview)
+    }
+  }
+  return [...byName.values()]
+}
+
+async function fetchPathLevelCandidates(ref: GitHubRef): Promise<SkillCandidate[]> {
+  const previews = await fetchPreviewCandidatesFromRef(ref)
+  const branch = previews[0]?.branch
+  if (!branch) throw new Error(MSG_PATH_NOT_FOUND)
+  return fetchCandidatesFromRoots(
+    ref.owner,
+    ref.repo,
+    branch,
+    previews.map((p) => p.remoteBasePath)
+  )
 }
 
 async function discoverSkillRootsAtLocation(
@@ -464,41 +609,26 @@ async function discoverSkillRootsAtLocation(
 }
 
 async function fetchRepoLevelCandidates(ref: GitHubRef): Promise<SkillCandidate[]> {
-  const repoInfo = await getRepoInfo(ref.owner, ref.repo)
-  const defaultBranch = repoInfo.default_branch?.trim()
-  if (!defaultBranch) {
-    throw new Error(MSG_PATH_NOT_FOUND)
-  }
-
-  const probeResults = await Promise.allSettled(
-    REPO_SCAN_PATHS.map((location) => discoverSkillRootsAtLocation(ref.owner, ref.repo, defaultBranch, location))
-  )
-
-  const orderedRoots: string[] = []
-  for (const result of probeResults) {
-    if (result.status === "fulfilled") {
-      orderedRoots.push(...result.value)
-    }
-  }
-
-  const uniqueRoots = [...new Set(orderedRoots)]
-  if (uniqueRoots.length === 0) {
-    throw new Error(MSG_NO_SKILLS)
-  }
-
-  const fetched = await fetchCandidatesFromRoots(ref.owner, ref.repo, defaultBranch, uniqueRoots)
-
+  const previews = await fetchPreviewCandidatesFromRef(ref)
+  const branch = previews[0]?.branch
+  if (!branch) throw new Error(MSG_PATH_NOT_FOUND)
+  const fetched = await fetchCandidatesFromRoots(ref.owner, ref.repo, branch, previews.map((p) => p.remoteBasePath))
   const byName = new Map<string, SkillCandidate>()
   for (const candidate of fetched) {
-    if (!byName.has(candidate.name)) {
-      byName.set(candidate.name, candidate)
-    }
+    if (!byName.has(candidate.name)) byName.set(candidate.name, candidate)
   }
-
   return [...byName.values()]
 }
 
 function normalizeError(err: unknown): Error {
+  if (err instanceof GitHubApiError) {
+    if (err.status === 404) return new Error(MSG_PATH_NOT_FOUND)
+    if (err.status === 403) {
+      return new Error(formatRateLimitRetryMessage(err.rateLimitResetAt))
+    }
+    return new Error(`GitHub API error (${err.status}). Please try again.`)
+  }
+
   if (err instanceof Error && (
     err.message === MSG_INVALID_URL ||
     err.message === MSG_PATH_NOT_FOUND ||
@@ -507,12 +637,6 @@ function normalizeError(err: unknown): Error {
     err.message === MSG_NETWORK
   )) {
     return err
-  }
-
-  if (err instanceof GitHubApiError) {
-    if (err.status === 404) return new Error(MSG_PATH_NOT_FOUND)
-    if (err.status === 403) return new Error(MSG_RATE_LIMIT)
-    return new Error(`GitHub API error (${err.status}). Please try again.`)
   }
 
   if (err instanceof Error) {
@@ -536,4 +660,25 @@ export async function fetchSkillCandidatesFromRef(ref: GitHubRef): Promise<Skill
 export async function fetchSkillCandidatesFromInput(input: string): Promise<SkillCandidate[]> {
   const ref = parseGitHubUrl(input)
   return fetchSkillCandidatesFromRef(ref)
+}
+
+export async function fetchSkillCandidatePreviewsFromRef(ref: GitHubRef): Promise<SkillCandidatePreview[]> {
+  try {
+    return await fetchPreviewCandidatesFromRef(ref)
+  } catch (err) {
+    throw normalizeError(err)
+  }
+}
+
+export async function fetchSkillCandidatePreviewsFromInput(input: string): Promise<SkillCandidatePreview[]> {
+  const ref = parseGitHubUrl(input)
+  return fetchSkillCandidatePreviewsFromRef(ref)
+}
+
+export async function hydrateSkillCandidate(preview: SkillCandidatePreview): Promise<SkillCandidate> {
+  try {
+    return await fetchSkillCandidate(preview.owner, preview.repo, preview.branch, preview.remoteBasePath)
+  } catch (err) {
+    throw normalizeError(err)
+  }
 }

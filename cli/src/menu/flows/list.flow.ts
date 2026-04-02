@@ -1,5 +1,6 @@
 import { discoverSkills, discoverCategories } from "../../core/skills.ts"
 import { log } from "../../ui/logger.ts"
+import * as pc from "../../ui/ansi.ts"
 
 // ============================================================================
 // FLOW: List skills
@@ -21,7 +22,10 @@ export async function listFlow(): Promise<void> {
   for (const [category, categorySkills] of byCategory) {
     log.step(`${category}/`)
     for (const s of categorySkills) {
-      log.bullet(s.name, s.description)
+      const label = s.source === "imported"
+        ? `${s.name} ${pc.yellow("⬇ imported")}`
+        : s.name
+      log.bullet(label, s.description)
     }
   }
 }

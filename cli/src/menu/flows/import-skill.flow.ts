@@ -2,7 +2,12 @@ import path from "path"
 import * as clack from "@clack/prompts"
 import * as fs from "fs-extra"
 import * as pc from "../../ui/ansi.ts"
-import { fetchSkillCandidatesFromInput, type SkillCandidate } from "../../core/github-fetcher.ts"
+import {
+  fetchSkillCandidatePreviewsFromInput,
+  hydrateSkillCandidate,
+  type SkillCandidate,
+  type SkillCandidatePreview,
+} from "../../core/github-fetcher.ts"
 import { validateSkillContent } from "../../core/quick-skill-validator.ts"
 import { discoverCategories, discoverSkills } from "../../core/skills.ts"
 import { getEntry, saveEntry } from "../../core/skill-imports.ts"
@@ -45,7 +50,7 @@ async function promptSourceUrl(): Promise<string | undefined> {
   return raw.trim()
 }
 
-async function promptSelectSkill(candidates: SkillCandidate[]): Promise<SkillCandidate | "back" | undefined> {
+async function promptSelectSkill(candidates: SkillCandidatePreview[]): Promise<SkillCandidatePreview | "back" | undefined> {
   const selected = await clack.select({
     message: "Multiple skills found. Which one do you want to import?",
     options: [
@@ -105,7 +110,7 @@ async function promptCategory(currentName: string): Promise<string | null | "bac
   return selection
 }
 
-async function runConflictChecks(candidate: SkillCandidate, targetRef: string): Promise<ImportAction | "cancelled"> {
+async function runConflictChecks(candidate: SkillCandidatePreview, targetRef: string): Promise<ImportAction | "cancelled"> {
   const existing = getEntry(targetRef)
   const incomingSource = normalizeUrl(candidate.canonicalUrl)
 
@@ -221,8 +226,9 @@ async function downloadAndSync(candidate: SkillCandidate, category: string | nul
 
 export async function importSkillFlow(): Promise<FlowResult> {
   let step: WizardStep = "url"
-  let candidates: SkillCandidate[] = []
-  let selectedCandidate: SkillCandidate | null = null
+  let candidates: SkillCandidatePreview[] = []
+  let selectedCandidate: SkillCandidatePreview | null = null
+  let hydratedCandidate: SkillCandidate | null = null
   let selectedCategory: string | null = null
   let currentAction: ImportAction = "import-new"
 
@@ -234,7 +240,7 @@ export async function importSkillFlow(): Promise<FlowResult> {
       spin.start("Resolving source...")
 
       try {
-        candidates = await fetchSkillCandidatesFromInput(input)
+        candidates = await fetchSkillCandidatePreviewsFromInput(input)
         spin.stop("Source resolved")
       } catch (err) {
         spin.stop("Failed")
@@ -244,9 +250,11 @@ export async function importSkillFlow(): Promise<FlowResult> {
 
       if (candidates.length === 1) {
         selectedCandidate = candidates[0] ?? null
+        hydratedCandidate = null
         step = "category"
       } else {
         selectedCandidate = null
+        hydratedCandidate = null
         step = "select-skill"
       }
       continue
@@ -260,6 +268,7 @@ export async function importSkillFlow(): Promise<FlowResult> {
         continue
       }
       selectedCandidate = picked
+      hydratedCandidate = null
       step = "category"
       continue
     }
@@ -283,6 +292,7 @@ export async function importSkillFlow(): Promise<FlowResult> {
       if (conflictCheck === "cancelled") return "cancelled"
 
       currentAction = conflictCheck
+      hydratedCandidate = null
       step = "confirm"
       continue
     }
@@ -293,7 +303,20 @@ export async function importSkillFlow(): Promise<FlowResult> {
     }
 
     const targetRef = buildTargetRef(selectedCandidate.name, selectedCategory)
-    const decision = await promptConfirm(selectedCandidate, selectedCategory, targetRef, currentAction)
+    if (!hydratedCandidate) {
+      const hydrateSpin = clack.spinner()
+      hydrateSpin.start("Preparing selected skill...")
+      try {
+        hydratedCandidate = await hydrateSkillCandidate(selectedCandidate)
+        hydrateSpin.stop("Skill details loaded")
+      } catch (err) {
+        hydrateSpin.stop("Failed")
+        log.error(err instanceof Error ? err.message : String(err))
+        return "cancelled"
+      }
+    }
+
+    const decision = await promptConfirm(hydratedCandidate, selectedCategory, targetRef, currentAction)
 
     if (decision === "back") {
       step = "category"
@@ -303,14 +326,14 @@ export async function importSkillFlow(): Promise<FlowResult> {
       return "cancelled"
     }
 
-    const validationOk = await validateBeforeImport(selectedCandidate)
+    const validationOk = await validateBeforeImport(hydratedCandidate)
     if (!validationOk) return "cancelled"
 
     const spin = clack.spinner()
     spin.start("Importing skill...")
     try {
-      await downloadAndSync(selectedCandidate, selectedCategory)
-      saveEntry(targetRef, selectedCandidate.canonicalUrl, { remoteBasePath: selectedCandidate.remoteBasePath })
+      await downloadAndSync(hydratedCandidate, selectedCategory)
+      saveEntry(targetRef, hydratedCandidate.canonicalUrl, { remoteBasePath: hydratedCandidate.remoteBasePath })
       spin.stop("Import completed")
     } catch (err) {
       spin.stop("Import failed")
@@ -321,8 +344,8 @@ export async function importSkillFlow(): Promise<FlowResult> {
     const destinationHint = selectedCategory
       ? path.join(IMPORTED_DIR, selectedCategory)
       : IMPORTED_DIR
-    log.success(`"${selectedCandidate.name}" imported to ${destinationHint}`)
-    log.info(`Files written: ${selectedCandidate.files.length}`)
+    log.success(`"${hydratedCandidate.name}" imported to ${destinationHint}`)
+    log.info(`Files written: ${hydratedCandidate.files.length}`)
     log.raw(`  ${pc.dim("Tip: Run 'skills' and choose a deploy option to push it to your IDEs.")}`)
     return "completed"
   }

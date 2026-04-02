@@ -2,8 +2,8 @@ import path from "path"
 import * as clack from "@clack/prompts"
 import fg from "fast-glob"
 import * as fs from "fs-extra"
-import type { SkillCandidate } from "../../core/github-fetcher.ts"
-import { fetchSkillCandidatesFromInput } from "../../core/github-fetcher.ts"
+import type { SkillCandidate, SkillCandidatePreview } from "../../core/github-fetcher.ts"
+import { fetchSkillCandidatePreviewsFromInput, hydrateSkillCandidate } from "../../core/github-fetcher.ts"
 import { getAllEntries, saveEntry, type ImportEntry } from "../../core/skill-imports.ts"
 import { IMPORTED_DIR } from "../../core/user-config.ts"
 import type { FlowResult } from "../flow-result.ts"
@@ -40,7 +40,7 @@ function normalizeRemotePath(remotePath: string): string {
   return remotePath.replace(/^\/+/, "").replace(/\\/g, "/")
 }
 
-function selectCandidateForRef(ref: string, entry: ImportEntry, candidates: SkillCandidate[]): SkillCandidate | null {
+function selectCandidateForRef(ref: string, entry: ImportEntry, candidates: SkillCandidatePreview[]): SkillCandidatePreview | null {
   if (candidates.length === 0) return null
   if (candidates.length === 1) return candidates[0] ?? null
 
@@ -124,9 +124,9 @@ async function compareLocalVsRemote(ref: string, candidate: SkillCandidate): Pro
 
 async function buildReport(ref: string, entry: ImportEntry): Promise<CheckReport> {
   try {
-    const candidates = await fetchSkillCandidatesFromInput(entry.source)
-    const candidate = selectCandidateForRef(ref, entry, candidates)
-    if (!candidate) {
+    const previews = await fetchSkillCandidatePreviewsFromInput(entry.source)
+    const preview = selectCandidateForRef(ref, entry, previews)
+    if (!preview) {
       return {
         ref,
         entry,
@@ -135,6 +135,7 @@ async function buildReport(ref: string, entry: ImportEntry): Promise<CheckReport
       }
     }
 
+    const candidate = await hydrateSkillCandidate(preview)
     const comparison = await compareLocalVsRemote(ref, candidate)
     return {
       ref,
@@ -237,15 +238,23 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
   const decision = await clack.select({
     message: "Update options:",
     options: [
+      { value: "select", label: "Select to update", hint: "recommended" },
       { value: "all", label: "Update all available" },
-      { value: "select", label: "Select to update" },
       { value: "cancel", label: "Cancel" },
     ],
   })
   if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
 
   let selectedReports = updatesAvailable
-  if (decision === "select") {
+  if (decision === "all") {
+    const confirmAll = await clack.confirm({
+      message:
+        `Update all ${updatesAvailable.length} skill${updatesAvailable.length === 1 ? "" : "s"}?\n` +
+        "This sync is destructive: local changes in imported skills will be overwritten.",
+      initialValue: false,
+    })
+    if (clack.isCancel(confirmAll) || !confirmAll) return "cancelled"
+  } else if (decision === "select") {
     const chosen = await selectReportsToUpdate(updatesAvailable)
     if (chosen === undefined) return "cancelled"
     selectedReports = chosen

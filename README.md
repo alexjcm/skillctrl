@@ -10,7 +10,8 @@ Centralized repository for managing AI agent skills.
 ### 🚀 Highlights
 - **Multiple IDE Support**: Deploy skills to VS Code, Windsurf, Claude Code, Cursor, and more.
 - **TUI-Driven Interface**: Interactive terminal wizard for seamless management.
-- **Zero Config**: Automatic skill discovery from your filesystem.
+- **GitHub Import & Update**: Import skills from GitHub URLs or `owner/repo`, then check/update later from registry.
+- **User Config**: Manage your own skills folder via `~/.skills/config.json`.
 - **Cross-Platform**: Works perfectly on Mac, Windows, and Linux.
 
 ---
@@ -20,7 +21,7 @@ Centralized repository for managing AI agent skills.
 This repository is organized to separate your logic from the deployment tool:
 
 - **[`skills/`](skills/)** 🧠: The core storage for all your AI agent skills, organized by category (e.g., `development`, `architecture`, `tools`).
-- **[`cli/`](cli/)** ⚡: The source code for the `skills` command-line tool. Its sole purpose is to read the `skills/` directory and deploy those skills to your IDEs.
+- **[`cli/`](cli/)** ⚡: The source code for the `skills` command-line tool. It manages local config, imports community skills from GitHub into `~/.skills/imported/`, and deploys skills to your IDEs.
 
 ---
 
@@ -74,6 +75,33 @@ bun start
 ```
 
 This TUI handles IDE targeting, project/workspace path resolution, and automatic Git exclusion handling. It also includes a **Doctor (diagnostics)** option to validate your environment.
+
+---
+
+## 📥 Import & Update from GitHub
+
+From the interactive menu:
+- **Import skill from GitHub**: accepts full GitHub URLs, `github.com/owner/repo`, or `owner/repo`.
+- **Check & update imported skills**: checks imported skills from `~/.skills/skill-imports.json` and lets you:
+  - select specific skills to update (recommended),
+  - update all available,
+  - cancel.
+
+Imported skills are stored outside this repo:
+- `~/.skills/imported/{category}/{skill}/`
+
+Optional token for higher API limits:
+```bash
+export GITHUB_TOKEN="your_token"
+```
+
+---
+
+## ⚠️ Important Considerations
+
+- **Destructive sync on import/update**: remote source is treated as truth for imported skills. Local edits under `~/.skills/imported/...` can be overwritten.
+- **Rate limits**: unauthenticated GitHub API requests are limited (typically 60 requests/hour). Configure `GITHUB_TOKEN` to reduce interruptions.
+- **Local repository safety**: import/update operations write to `~/.skills/imported/` and do not modify the `skills/` directory in this repo.
 
 ---
 
