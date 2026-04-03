@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { Command } from "commander"
 import { EXIT_CODES } from "./core/exit-codes.ts"
 import { log } from "./ui/logger.ts"
@@ -14,7 +16,7 @@ process.on("exit", () => {
 })
 
 program
-  .name("skills")
+  .name("skillctrl")
   .description("Manage and deploy AI agent skills")
   .version("1.0.0")
   .showHelpAfterError("(run with --help for usage)")
@@ -25,9 +27,9 @@ Behavior:
   no arguments   open the interactive TUI menu
 
 Examples:
-  $ skills
-  $ skills --help
-  $ skills --version
+  $ skillctrl
+  $ skillctrl --help
+  $ skillctrl --version
 `
   )
 
@@ -35,7 +37,7 @@ Examples:
 // No arguments → launch interactive TUI menu directly
 if (process.argv.length <= 2) {
   try {
-    const { runMenu } = await import("./menu/index")
+    const { runMenu } = await import("./menu/index.ts")
     const exitCode = await runMenu()
     process.exit(exitCode)
   } catch (err) {

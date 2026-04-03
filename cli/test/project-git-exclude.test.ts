@@ -17,6 +17,8 @@ describe("suggestGitExcludeRulesForIdes", () => {
   it("returns rules derived from selected IDE project paths", () => {
     expect(suggestGitExcludeRulesForIdes(["codex"])).toEqual([".agents/"])
     expect(suggestGitExcludeRulesForIdes(["cursor"])).toEqual([".agents/", ".cursor/"])
+    expect(suggestGitExcludeRulesForIdes(["junie"])).toEqual([".junie/"])
+    expect(suggestGitExcludeRulesForIdes(["opencode"])).toEqual([".agents/", ".claude/", ".opencode/"])
   })
 })
 

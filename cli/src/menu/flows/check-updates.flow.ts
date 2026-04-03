@@ -1,172 +1,15 @@
-import path from "path"
 import * as clack from "@clack/prompts"
-import fg from "fast-glob"
-import * as fs from "fs-extra"
-import * as pc from "../../ui/ansi.ts"
-import type { SkillCandidate, SkillCandidatePreview } from "../../core/github-fetcher.ts"
-import { fetchSkillCandidatePreviewsFromInput, hydrateSkillCandidate } from "../../core/github-fetcher.ts"
-import { assertSafePathSegment, resolvePathInside } from "../../core/path-safety.ts"
-import { getAllEntries, saveEntry, type ImportEntry } from "../../core/skill-imports.ts"
-import { IMPORTED_DIR } from "../../core/user-config.ts"
+import {
+  buildUpdateReport,
+  syncImportedSkillFromReport,
+  type CheckReport,
+} from "../../core/imported-skill-updates.ts"
+import { getAllEntries } from "../../core/skill-imports.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { log } from "../../ui/logger.ts"
-
-type CheckStatus = "up-to-date" | "update-available" | "unreachable"
-
-interface CheckReport {
-  ref: string
-  entry: ImportEntry
-  status: CheckStatus
-  message?: string
-  candidate?: SkillCandidate
-  remoteBuffers?: Map<string, Buffer>
-}
-
-function splitRef(ref: string): { category: string | null; name: string } {
-  const normalized = ref.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
-  const parts = normalized.split("/").filter(Boolean)
-  const name = parts[parts.length - 1] ?? normalized
-  if (parts.length >= 2) {
-    const category = parts.slice(0, -1).join("/")
-    return { category, name }
-  }
-  return { category: null, name }
-}
-
-function localSkillPathFromRef(ref: string): string {
-  const parts = ref.replace(/\\/g, "/").split("/").filter(Boolean)
-  if (parts.length === 0) {
-    throw new Error(`Invalid imported skill ref: "${ref}"`)
-  }
-
-  const safeRefPath = parts
-    .map((segment) => assertSafePathSegment(segment, "Imported skill ref segment"))
-    .join("/")
-
-  return resolvePathInside(IMPORTED_DIR, safeRefPath, `Imported skill ref "${ref}"`)
-}
-
-function normalizeRemotePath(remotePath: string): string {
-  const normalized = remotePath.replace(/^\/+/, "").replace(/\\/g, "/").trim()
-  if (!normalized) {
-    throw new Error(`Invalid remote file path: "${remotePath}"`)
-  }
-  return normalized
-}
-
-function selectCandidateForRef(ref: string, entry: ImportEntry, candidates: SkillCandidatePreview[]): SkillCandidatePreview | null {
-  if (candidates.length === 0) return null
-  if (candidates.length === 1) return candidates[0] ?? null
-
-  if (entry.remoteBasePath) {
-    const byBasePath = candidates.find((c) => c.remoteBasePath === entry.remoteBasePath)
-    if (byBasePath) return byBasePath
-  }
-
-  const { name } = splitRef(ref)
-  const exactByName = candidates.find((c) => c.name === name)
-  if (exactByName) return exactByName
-
-  const exactByBase = candidates.find((c) => {
-    const baseName = path.posix.basename(c.remoteBasePath || "")
-    return baseName === name
-  })
-  if (exactByBase) return exactByBase
-
-  return null
-}
-
-async function listLocalFiles(localDir: string): Promise<string[]> {
-  if (!(await fs.pathExists(localDir))) return []
-  const files = await fg("**/*", {
-    cwd: localDir,
-    onlyFiles: true,
-    dot: true,
-    followSymbolicLinks: false,
-  })
-  return files
-    .map((f) => f.replace(/\\/g, "/").replace(/^\/+/, ""))
-    .sort((a, b) => a.localeCompare(b))
-}
-
-async function fetchRemoteBuffers(candidate: SkillCandidate): Promise<Map<string, Buffer>> {
-  const tasks = candidate.files.map(async (file) => {
-    const response = await fetch(file.downloadUrl)
-    if (!response.ok) {
-      throw new Error(`Could not download ${file.remotePath} (${response.status})`)
-    }
-    const buffer = Buffer.from(await response.arrayBuffer())
-    return [normalizeRemotePath(file.remotePath), buffer] as const
-  })
-
-  const loaded = await Promise.all(tasks)
-  return new Map<string, Buffer>(loaded)
-}
-
-function sameFileSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-async function compareLocalVsRemote(ref: string, candidate: SkillCandidate): Promise<{ upToDate: boolean; remoteBuffers: Map<string, Buffer> }> {
-  const localDir = localSkillPathFromRef(ref)
-  const localFiles = await listLocalFiles(localDir)
-  const remoteFiles = candidate.files
-    .map((file) => normalizeRemotePath(file.remotePath))
-    .sort((a, b) => a.localeCompare(b))
-
-  if (!sameFileSet(localFiles, remoteFiles)) {
-    const remoteBuffers = await fetchRemoteBuffers(candidate)
-    return { upToDate: false, remoteBuffers }
-  }
-
-  const remoteBuffers = await fetchRemoteBuffers(candidate)
-  for (const rel of remoteFiles) {
-    const localPath = resolvePathInside(localDir, rel, `Remote file path "${rel}"`)
-    const localBuffer = await fs.readFile(localPath)
-    const remoteBuffer = remoteBuffers.get(rel)
-    if (!remoteBuffer || !remoteBuffer.equals(localBuffer)) {
-      return { upToDate: false, remoteBuffers }
-    }
-  }
-
-  return { upToDate: true, remoteBuffers }
-}
-
-async function buildReport(ref: string, entry: ImportEntry): Promise<CheckReport> {
-  try {
-    const previews = await fetchSkillCandidatePreviewsFromInput(entry.source)
-    const preview = selectCandidateForRef(ref, entry, previews)
-    if (!preview) {
-      return {
-        ref,
-        entry,
-        status: "unreachable",
-        message: "Could not resolve a unique skill candidate from source",
-      }
-    }
-
-    const candidate = await hydrateSkillCandidate(preview)
-    const comparison = await compareLocalVsRemote(ref, candidate)
-    return {
-      ref,
-      entry,
-      status: comparison.upToDate ? "up-to-date" : "update-available",
-      candidate,
-      remoteBuffers: comparison.remoteBuffers,
-    }
-  } catch (err) {
-    return {
-      ref,
-      entry,
-      status: "unreachable",
-      message: err instanceof Error ? err.message : String(err),
-    }
-  }
-}
+import { promptMultiselectWithBack } from "../helpers/prompt-multiselect-with-back.ts"
+import { runWithSpinner } from "../helpers/run-with-spinner.ts"
+import { FLOW_ALL, FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED } from "../constants/flow-tokens.ts"
 
 function renderReport(report: CheckReport): void {
   if (report.status === "up-to-date") {
@@ -180,57 +23,22 @@ function renderReport(report: CheckReport): void {
   log.raw(`  ✖ ${report.ref}  — Source unreachable${report.message ? ` (${report.message})` : ""}`)
 }
 
-async function syncSkillFromReport(report: CheckReport): Promise<void> {
-  if (!report.candidate || !report.remoteBuffers) {
-    throw new Error(`Missing remote payload for ${report.ref}`)
-  }
-
-  const destination = localSkillPathFromRef(report.ref)
-  await fs.remove(destination)
-  await fs.ensureDir(destination)
-
-  for (const [remotePath, content] of report.remoteBuffers.entries()) {
-    const targetPath = resolvePathInside(destination, remotePath, `Remote file path "${remotePath}"`)
-    await fs.ensureDir(path.dirname(targetPath))
-    await fs.writeFile(targetPath, content)
-  }
-
-  saveEntry(report.ref, report.candidate.canonicalUrl, { remoteBasePath: report.candidate.remoteBasePath })
-}
-
-async function selectReportsToUpdate(candidates: CheckReport[]): Promise<CheckReport[] | "back" | undefined> {
+async function selectReportsToUpdate(candidates: CheckReport[]): Promise<CheckReport[] | typeof FLOW_BACK | undefined> {
   if (candidates.length === 0) return []
 
-  while (true) {
-    const selected = await clack.multiselect({
-      message: "Select imported skills to update:",
-      required: false,
-      options: [
-        ...candidates.map((report) => ({
-          value: report.ref,
-          label: report.ref,
-          hint: report.entry.source,
-        })),
-        { value: "__back", label: pc.dim("← Back") },
-      ],
-    })
+  const selected = await promptMultiselectWithBack({
+    message: "Select imported skills to update:",
+    options: candidates.map((report) => ({
+      value: report.ref,
+      label: report.ref,
+      hint: report.entry.source,
+    })),
+    mixedBackWarning: "Select skills or Back, not both.",
+  })
 
-    if (clack.isCancel(selected)) return undefined
-
-    const selectedSet = new Set(selected as string[])
-    if (selectedSet.has("__back")) {
-      if (selectedSet.size === 1) return "back"
-      clack.log.warning("Select skills or Back, not both.")
-      continue
-    }
-
-    if (selectedSet.size === 0) {
-      clack.log.warning("Press Space to select, Enter to submit.")
-      continue
-    }
-
-    return candidates.filter((report) => selectedSet.has(report.ref))
-  }
+  if (selected === undefined || selected === FLOW_BACK) return selected
+  const selectedSet = new Set(selected)
+  return candidates.filter((report) => selectedSet.has(report.ref))
 }
 
 export async function checkUpdatesFlow(): Promise<FlowResult> {
@@ -238,23 +46,26 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
   if (entries.length === 0) {
     log.info("No imported skills found.")
     log.raw("  Use \"Import skill from GitHub\" to add your first one.")
-    return "completed"
+    return FLOW_COMPLETED
   }
 
   if (entries.length * 3 > 50) {
     log.warn("This check may approach GitHub's unauthenticated API rate limit (60 req/hour).")
   }
 
-  const spin = clack.spinner()
-  spin.start(`Checking ${entries.length} imported skill${entries.length === 1 ? "" : "s"}...`)
-
-  const reports: CheckReport[] = []
-  for (const [ref, entry] of entries) {
-    const report = await buildReport(ref, entry)
-    reports.push(report)
-  }
-
-  spin.stop("Completed")
+  const reports = await runWithSpinner(
+    {
+      startMessage: `Checking ${entries.length} imported skill${entries.length === 1 ? "" : "s"}...`,
+    },
+    async () => {
+      const nextReports: CheckReport[] = []
+      for (const [ref, entry] of entries) {
+        const report = await buildUpdateReport(ref, entry)
+        nextReports.push(report)
+      }
+      return nextReports
+    }
+  )
 
   for (const report of reports) {
     renderReport(report)
@@ -263,7 +74,7 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
   const updatesAvailable = reports.filter((report) => report.status === "update-available")
   if (updatesAvailable.length === 0) {
     log.success("All imported skills are up to date.")
-    return "completed"
+    return FLOW_COMPLETED
   }
 
   let selectedReports: CheckReport[] | null = null
@@ -272,50 +83,57 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
       message: "Update options:",
       options: [
         { value: "select", label: "Select to update", hint: "recommended" },
-        { value: "all", label: "Update all available" },
-        { value: "cancel", label: "Cancel" },
+        { value: FLOW_ALL, label: "Update all available" },
+        { value: FLOW_CANCEL, label: "Cancel" },
       ],
     })
-    if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
+    if (clack.isCancel(decision) || decision === FLOW_CANCEL) return FLOW_CANCELLED
 
-    if (decision === "all") {
+    if (decision === FLOW_ALL) {
       const confirmAll = await clack.confirm({
         message:
           `Update all ${updatesAvailable.length} skill${updatesAvailable.length === 1 ? "" : "s"}?\n` +
           "This sync is destructive: local changes in imported skills will be overwritten.",
         initialValue: false,
       })
-      if (clack.isCancel(confirmAll) || !confirmAll) return "cancelled"
+      if (clack.isCancel(confirmAll) || !confirmAll) return FLOW_CANCELLED
       selectedReports = updatesAvailable
       continue
     }
 
     const chosen = await selectReportsToUpdate(updatesAvailable)
-    if (chosen === undefined) return "cancelled"
-    if (chosen === "back") continue
+    if (chosen === undefined) return FLOW_CANCELLED
+    if (chosen === FLOW_BACK) continue
     selectedReports = chosen
   }
 
-  const updateSpin = clack.spinner()
-  updateSpin.start(`Updating ${selectedReports.length} skill${selectedReports.length === 1 ? "" : "s"}...`)
-
-  let updated = 0
-  let failed = 0
-  for (const report of selectedReports) {
-    try {
-      await syncSkillFromReport(report)
-      updated++
-    } catch (err) {
-      failed++
-      log.error(`Failed to update ${report.ref}`, err)
+  const summary = await runWithSpinner(
+    {
+      startMessage: `Updating ${selectedReports.length} skill${selectedReports.length === 1 ? "" : "s"}...`,
+      successMessage: (result: { updated: number; failed: number }) =>
+        result.failed > 0 ? "Completed with warnings" : "Completed",
+    },
+    async () => {
+      let updated = 0
+      let failed = 0
+      for (const report of selectedReports) {
+        try {
+          await syncImportedSkillFromReport(report)
+          updated++
+        } catch (err) {
+          failed++
+          log.error(`Failed to update ${report.ref}`, err)
+        }
+      }
+      return { updated, failed }
     }
-  }
+  )
 
-  updateSpin.stop(failed > 0 ? "Completed with warnings" : "Completed")
+  const { updated, failed } = summary
   log.info(`Updated: ${updated}`)
   if (failed > 0) {
     log.warn(`Failed: ${failed}`)
   }
 
-  return failed > 0 ? "cancelled" : "completed"
+  return failed > 0 ? FLOW_CANCELLED : FLOW_COMPLETED
 }

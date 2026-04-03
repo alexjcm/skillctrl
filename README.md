@@ -1,6 +1,6 @@
-# 🛠️ My Skills Collection
+# 🛠️ skillctrl · Manage and deploy AI skills
 
-Centralized repository for managing AI agent skills.
+Helps you import, update, and deploy AI agent skills, and `skills/` is ideal for skills you create yourself.
 
 ![Bun](https://img.shields.io/badge/bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white)
 ![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
@@ -12,7 +12,6 @@ Centralized repository for managing AI agent skills.
 - **TUI-Driven Interface**: Interactive terminal wizard for seamless management.
 - **GitHub Import & Update**: Import skills from GitHub URLs or `owner/repo`, then check/update later from registry.
 - **User Config**: Manage your own skills dir via `~/.skills/config.json`.
-- **Cross-Platform**: Works perfectly on Mac, Windows, and Linux.
 
 ---
 
@@ -20,8 +19,8 @@ Centralized repository for managing AI agent skills.
 
 This repository is organized to separate your logic from the deployment tool:
 
-- **[`skills/`](skills/)** 🧠: The core storage for all your AI agent skills, organized by category (e.g., `development`, `architecture`, `tools`).
-- **[`cli/`](cli/)** ⚡: The source code for the `skills` command-line tool. It manages local config, imports community skills from GitHub into `~/.skills/imported/`, and deploys skills to your IDEs.
+- **[`skills/`](skills/)** 🧠: The core storage for all your AI agent skills, organized by category.
+- **[`cli/`](cli/)** ⚡: The source code for the `skillctrl` command-line tool. It manages local config, imports community skills from GitHub into `~/.skills/imported/`, and deploys skills to your IDEs.
 
 ---
 
@@ -31,7 +30,7 @@ To expand your local toolkit:
 1.  Navigate to `skills/` and pick a category (or create a new one).
 2.  Create a folder (e.g., `skills/development/my-new-skill/`).
 3.  Add a `SKILL.md` with standard YAML frontmatter (name and description).
-4.  Run `skills` to verify and deploy.
+4.  Run `skillctrl` to verify and deploy.
 
 ---
 
@@ -41,9 +40,9 @@ The CLI manages and deploys skills to your local environment.
 
 ### Runtime model
 - **Bun**: development only (`dev`, local runs, tests/lint in this repo).
-- **Node.js + npm**: distribution/runtime for the `skills` command.
+- **Node.js + npm**: distribution/runtime for the `skillctrl` command.
 
-Recommended Node.js version for distribution/runtime: **24+**.
+Recommended Node.js version for distribution/runtime: **20+**.
 
 ### 1. Go to CLI directory
 ```bash
@@ -63,7 +62,18 @@ npm install
 npm link
 ```
 
-> For distribution/runtime, prefer Node/NPM linking (`npm link`), then run `skills` from any directory.
+> For distribution/runtime, prefer Node/NPM linking (`npm link`), then run `skillctrl` from any directory.
+
+### 3. After publishing to npm (public registry)
+```bash
+npm install -g skillctrl
+skillctrl
+```
+
+Or run without global install:
+```bash
+npx skillctrl@latest
+```
 
 ---
 
@@ -74,7 +84,7 @@ The easiest way to manage your skills is via the guided wizard:
 
 ```bash
 # Global command (if linked)
-skills
+skillctrl
 
 # Or local development run
 cd cli
@@ -86,18 +96,9 @@ This TUI handles IDE targeting, project/workspace path resolution, and automatic
 ### ❓ Command Help
 
 ```bash
-skills --help
-skills --version
+skillctrl --help
+skillctrl --version
 ```
-
-Behavior:
-- `skills` (no arguments) opens the interactive TUI menu.
-- `skills --help` shows available CLI options.
-- `skills --version` prints the current CLI version.
-
-`skills --help` includes:
-- Behavior summary (`no arguments` opens the interactive menu).
-- Quick examples (`skills`, `skills --help`, `skills --version`).
 
 ---
 
@@ -135,9 +136,11 @@ export GITHUB_TOKEN="your_token"
 | **Antigravity** | `~/.gemini/antigravity/skills/` | `.agent/skills/` |
 | **Windsurf** | `~/.codeium/windsurf/skills/` | `.windsurf/skills/` |
 | **IntelliJ (Codeium)** | `~/.codeium/skills/` | `.windsurf/skills/` |
+| **Junie (JetBrains)** | `~/.junie/skills/` | `.junie/skills/` |
 | **Claude Code** | `~/.claude/skills/` | `.claude/skills/` |
 | **Cursor** | `~/.cursor/skills/` | `.cursor/skills/` + `.agents/skills/` |
 | **Codex** | `~/.agents/skills/` | `.agents/skills/` |
+| **OpenCode** | `~/.config/opencode/skills/` + `~/.claude/skills/` + `~/.agents/skills/` | `.opencode/skills/` + `.claude/skills/` + `.agents/skills/` |
 
 ---
 

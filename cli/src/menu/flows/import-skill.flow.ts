@@ -1,6 +1,4 @@
-import path from "path"
 import * as clack from "@clack/prompts"
-import * as fs from "fs-extra"
 import * as pc from "../../ui/ansi.ts"
 import {
   fetchSkillCandidatePreviewsFromInput,
@@ -8,57 +6,56 @@ import {
   type SkillCandidate,
   type SkillCandidatePreview,
 } from "../../core/github-fetcher.ts"
-import { assertSafePathSegment, resolvePathInside } from "../../core/path-safety.ts"
+import {
+  buildImportedDestinationPath,
+  createInitialImportPlans,
+  downloadAndSyncImportedSkill,
+  findDuplicateTargetRefs,
+  normalizeSourceUrl,
+  type ImportAction,
+  type ImportPlan,
+  type PreparedImport,
+} from "../../core/imported-skill-sync.ts"
 import { validateSkillContent } from "../../core/quick-skill-validator.ts"
 import { discoverCategories, discoverSkills } from "../../core/skills.ts"
 import { getEntry, saveEntry } from "../../core/skill-imports.ts"
-import { IMPORTED_DIR } from "../../core/user-config.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { log } from "../../ui/logger.ts"
+import { promptMultiselectWithBack } from "../helpers/prompt-multiselect-with-back.ts"
+import { runWithSpinner } from "../helpers/run-with-spinner.ts"
+import { FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_CONFIRM } from "../constants/flow-tokens.ts"
 
-type WizardStep = "url" | "select-skill" | "category" | "confirm"
-type ImportAction = "import-new" | "update-same-source" | "overwrite-source"
-type ImportPlan = {
-  preview: SkillCandidatePreview
-  targetRef: string
-  action: ImportAction
-}
-type PreparedImport = {
-  candidate: SkillCandidate
-  targetRef: string
-  action: ImportAction
-}
+type WizardStep = "url" | "select-skill" | "category" | typeof FLOW_CONFIRM
 
-function normalizeUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "")
+interface ImportWizardState {
+  step: WizardStep
+  candidates: SkillCandidatePreview[]
+  selectedCandidates: SkillCandidatePreview[]
+  preparedImports: PreparedImport[]
+  selectedCategory: string | null
+  importPlans: ImportPlan[]
 }
 
-function buildTargetRef(name: string, category: string | null): string {
-  const safeName = assertSafePathSegment(name, "Skill name")
-  if (!category) return safeName
-  const safeCategory = assertSafePathSegment(category, "Category")
-  return `${safeCategory}/${safeName}`
-}
-
-function buildDestinationPath(name: string, category: string | null): string {
-  const safeName = assertSafePathSegment(name, "Skill name")
-  if (!category) return path.join(IMPORTED_DIR, safeName)
-  const safeCategory = assertSafePathSegment(category, "Category")
-  return path.join(IMPORTED_DIR, safeCategory, safeName)
-}
-
-function normalizeRemoteRelativePath(remotePath: string): string {
-  const normalized = remotePath.replace(/\\/g, "/").replace(/^\/+/, "").trim()
-  if (!normalized) {
-    throw new Error(`Invalid remote file path: "${remotePath}"`)
-  }
-  return normalized
+interface ImportExecutionSummary {
+  importedCount: number
+  failedCount: number
+  filesWritten: number
 }
 
 function actionLabel(action: ImportAction): string {
   if (action === "update-same-source") return "⟳ Update (same source)"
   if (action === "overwrite-source") return "⟳ Overwrite (new source)"
   return "✦ Import new"
+}
+
+function resetImportPreparation(state: ImportWizardState): void {
+  state.preparedImports = []
+  state.importPlans = []
+}
+
+function setSelectedCandidates(state: ImportWizardState, candidates: SkillCandidatePreview[]): void {
+  state.selectedCandidates = candidates
+  resetImportPreparation(state)
 }
 
 async function promptSourceUrl(): Promise<string | undefined> {
@@ -73,41 +70,30 @@ async function promptSourceUrl(): Promise<string | undefined> {
   return raw.trim()
 }
 
-async function promptSelectSkills(candidates: SkillCandidatePreview[]): Promise<SkillCandidatePreview[] | "back" | undefined> {
-  while (true) {
-    const selected = await clack.multiselect({
-      message: "Multiple skills found. Select one or more to import:",
-      required: false,
-      options: [
-        ...candidates.map((candidate, idx) => ({
-          value: String(idx),
-          label: candidate.name,
-          ...(candidate.description ? { hint: pc.dim(candidate.description) } : {}),
-        })),
-        { value: "__back", label: pc.dim("← Back") },
-      ],
-    })
+async function promptSelectSkills(
+  candidates: SkillCandidatePreview[]
+): Promise<SkillCandidatePreview[] | typeof FLOW_BACK | undefined> {
+  const selected = await promptMultiselectWithBack({
+    message: "Multiple skills found. Select one or more to import:",
+    options: candidates.map((candidate, idx) => ({
+      value: String(idx),
+      label: candidate.name,
+      ...(candidate.description ? { hint: pc.dim(candidate.description) } : {}),
+    })),
+    mixedBackWarning: "Select skills or Back, not both.",
+    warn: (message) => log.warn(message),
+  })
 
-    if (clack.isCancel(selected)) return undefined
+  if (selected === undefined || selected === FLOW_BACK) return selected
 
-    const values = new Set(selected as string[])
-    if (values.has("__back")) {
-      if (values.size === 1) return "back"
-      log.warn("Select skills or Back, not both.")
-      continue
-    }
-
-    const picked = candidates.filter((_, idx) => values.has(String(idx)))
-    if (picked.length === 0) {
-      log.warn("Press Space to select, Enter to submit.")
-      continue
-    }
-
-    return picked
-  }
+  const selectedSet = new Set(selected)
+  return candidates.filter((_, idx) => selectedSet.has(String(idx)))
 }
 
-async function promptCategory(currentName: string, isBatch = false): Promise<string | null | "back" | undefined> {
+async function promptCategory(
+  currentName: string,
+  isBatch = false
+): Promise<string | null | typeof FLOW_BACK | undefined> {
   const categories = (await discoverCategories()).filter(Boolean)
 
   if (categories.length === 0) {
@@ -129,7 +115,7 @@ async function promptCategory(currentName: string, isBatch = false): Promise<str
 
   if (clack.isCancel(selection)) return undefined
   if (selection === "__none") return null
-  if (selection === "__back") return "back"
+  if (selection === "__back") return FLOW_BACK
 
   if (selection === "__create") {
     const rawCategory = await clack.text({
@@ -154,14 +140,14 @@ async function runConflictChecks(
   candidate: SkillCandidatePreview,
   targetRef: string,
   allSkills?: Awaited<ReturnType<typeof discoverSkills>>
-): Promise<ImportAction | "cancelled"> {
+): Promise<ImportAction | typeof FLOW_CANCELLED> {
   const existing = getEntry(targetRef)
-  const incomingSource = normalizeUrl(candidate.canonicalUrl)
+  const incomingSource = normalizeSourceUrl(candidate.canonicalUrl)
 
   let action: ImportAction = "import-new"
 
   if (existing) {
-    const existingSource = normalizeUrl(existing.source)
+    const existingSource = normalizeSourceUrl(existing.source)
     if (existingSource === incomingSource) {
       action = "update-same-source"
     } else {
@@ -173,7 +159,7 @@ async function runConflictChecks(
           "Replace it?",
         initialValue: false,
       })
-      if (clack.isCancel(replace) || !replace) return "cancelled"
+      if (clack.isCancel(replace) || !replace) return FLOW_CANCELLED
       action = "overwrite-source"
     }
   }
@@ -192,38 +178,21 @@ async function runConflictChecks(
         "Importing here will create a second copy. Continue?",
       initialValue: false,
     })
-    if (clack.isCancel(proceed) || !proceed) return "cancelled"
+    if (clack.isCancel(proceed) || !proceed) return FLOW_CANCELLED
   }
 
   return action
 }
 
-function findDuplicateTargetRefs(refs: string[]): string[] {
-  const counts = new Map<string, number>()
-  for (const ref of refs) {
-    counts.set(ref, (counts.get(ref) ?? 0) + 1)
-  }
-
-  return [...counts.entries()]
-    .filter(([, count]) => count > 1)
-    .map(([ref]) => ref)
-    .sort((a, b) => a.localeCompare(b))
-}
-
 async function planImportsForSelection(
   selectedCandidates: SkillCandidatePreview[],
   category: string | null
-): Promise<{ status: "ok"; plans: ImportPlan[] } | { status: "cancelled" } | { status: "duplicate-targets"; duplicates: string[] }> {
-  const plans: ImportPlan[] = []
-
-  for (const candidate of selectedCandidates) {
-    const targetRef = buildTargetRef(candidate.name, category)
-    plans.push({
-      preview: candidate,
-      targetRef,
-      action: "import-new",
-    })
-  }
+): Promise<
+  { status: "ok"; plans: ImportPlan[] } |
+  { status: typeof FLOW_CANCELLED } |
+  { status: "duplicate-targets"; duplicates: string[] }
+> {
+  const plans = createInitialImportPlans(selectedCandidates, category)
 
   const duplicates = findDuplicateTargetRefs(plans.map((p) => p.targetRef))
   if (duplicates.length > 0) {
@@ -233,7 +202,7 @@ async function planImportsForSelection(
   const allSkills = await discoverSkills()
   for (const plan of plans) {
     const action = await runConflictChecks(plan.preview, plan.targetRef, allSkills)
-    if (action === "cancelled") return { status: "cancelled" }
+    if (action === FLOW_CANCELLED) return { status: FLOW_CANCELLED }
     plan.action = action
   }
 
@@ -243,12 +212,12 @@ async function planImportsForSelection(
 async function promptConfirm(
   imports: PreparedImport[],
   category: string | null
-): Promise<"confirm" | "back" | "cancel"> {
+): Promise<typeof FLOW_CONFIRM | typeof FLOW_BACK | typeof FLOW_CANCEL> {
   log.step("Summary:")
   log.bullet("Skills", String(imports.length))
 
   for (const item of imports) {
-    const destDir = buildDestinationPath(item.candidate.name, category)
+    const destDir = buildImportedDestinationPath(item.candidate.name, category)
     log.raw(`  ${pc.bold(item.candidate.name)}`)
     log.bullet("Source", item.candidate.canonicalUrl)
     log.bullet("Destination", destDir)
@@ -258,15 +227,15 @@ async function promptConfirm(
   const decision = await clack.select({
     message: "Proceed with import?",
     options: [
-      { value: "confirm", label: pc.bold("Confirm") },
-      { value: "back", label: pc.dim("← Back") },
-      { value: "cancel", label: "Cancel" },
+      { value: FLOW_CONFIRM, label: pc.bold("Confirm") },
+      { value: FLOW_BACK, label: pc.dim("← Back") },
+      { value: FLOW_CANCEL, label: "Cancel" },
     ],
   })
 
-  if (clack.isCancel(decision)) return "cancel"
-  if (decision === "confirm" || decision === "back" || decision === "cancel") return decision
-  return "cancel"
+  if (clack.isCancel(decision)) return FLOW_CANCEL
+  if (decision === FLOW_CONFIRM || decision === FLOW_BACK || decision === FLOW_CANCEL) return decision
+  return FLOW_CANCEL
 }
 
 async function validateBeforeImport(candidate: SkillCandidate): Promise<boolean> {
@@ -284,208 +253,216 @@ async function validateBeforeImport(candidate: SkillCandidate): Promise<boolean>
   return !clack.isCancel(proceed) && proceed
 }
 
-async function downloadAndSync(candidate: SkillCandidate, category: string | null): Promise<void> {
-  const destination = buildDestinationPath(candidate.name, category)
+async function hydratePreparedImports(importPlans: ImportPlan[]): Promise<PreparedImport[]> {
+  const hydrated: PreparedImport[] = []
+  for (const plan of importPlans) {
+    const candidate = await hydrateSkillCandidate(plan.preview)
+    hydrated.push({
+      candidate,
+      targetRef: plan.targetRef,
+      action: plan.action,
+    })
+  }
+  return hydrated
+}
 
-  await fs.remove(destination)
-  await fs.ensureDir(destination)
+async function executeImports(preparedImports: PreparedImport[], category: string | null): Promise<ImportExecutionSummary> {
+  let importedCount = 0
+  let failedCount = 0
+  let filesWritten = 0
 
-  const downloads = candidate.files.map(async (file) => {
-    const relative = normalizeRemoteRelativePath(file.remotePath)
-    const targetPath = resolvePathInside(destination, relative, `Remote file path "${file.remotePath}"`)
-    await fs.ensureDir(path.dirname(targetPath))
-
-    const response = await fetch(file.downloadUrl)
-    if (!response.ok) {
-      throw new Error(`Could not download ${file.remotePath} (${response.status})`)
+  for (const item of preparedImports) {
+    try {
+      const written = await downloadAndSyncImportedSkill(item.candidate, category)
+      saveEntry(item.targetRef, item.candidate.canonicalUrl, { remoteBasePath: item.candidate.remoteBasePath })
+      importedCount++
+      filesWritten += written
+    } catch (err) {
+      failedCount++
+      log.error(`Failed to import "${item.candidate.name}"`, err)
     }
+  }
 
-    const content = Buffer.from(await response.arrayBuffer())
-    await fs.writeFile(targetPath, content)
-  })
+  return { importedCount, failedCount, filesWritten }
+}
 
-  await Promise.all(downloads)
+function printImportSummary(
+  preparedImports: PreparedImport[],
+  selectedCategory: string | null,
+  summary: ImportExecutionSummary
+): FlowResult {
+  const { importedCount, failedCount, filesWritten } = summary
+  if (importedCount === 0) return FLOW_CANCELLED
+
+  if (preparedImports.length === 1 && importedCount === 1 && failedCount === 0) {
+    const only = preparedImports[0] as PreparedImport
+    const destinationHint = buildImportedDestinationPath(only.candidate.name, selectedCategory)
+    log.success(`"${only.candidate.name}" imported to ${destinationHint}`)
+    log.raw(`  ${pc.dim(`Files written: ${filesWritten}`)}`)
+    return FLOW_COMPLETED
+  }
+
+  log.success(`Imported: ${importedCount}`)
+  if (failedCount > 0) {
+    log.warn(`Failed: ${failedCount}`)
+  }
+  log.raw(`  ${pc.dim(`Files written: ${filesWritten}`)}`)
+  return failedCount > 0 ? FLOW_CANCELLED : FLOW_COMPLETED
+}
+
+async function handleUrlStep(state: ImportWizardState): Promise<FlowResult | void> {
+  const input = await promptSourceUrl()
+  if (!input) return FLOW_CANCELLED
+
+  try {
+    state.candidates = await runWithSpinner(
+      { startMessage: "Resolving source..." },
+      () => fetchSkillCandidatePreviewsFromInput(input)
+    )
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err))
+    return
+  }
+
+  if (state.candidates.length === 1) {
+    setSelectedCandidates(state, state.candidates[0] ? [state.candidates[0]] : [])
+    state.step = "category"
+    return
+  }
+
+  setSelectedCandidates(state, [])
+  state.step = "select-skill"
+}
+
+async function handleSelectSkillStep(state: ImportWizardState): Promise<FlowResult | void> {
+  const picked = await promptSelectSkills(state.candidates)
+  if (!picked) return FLOW_CANCELLED
+  if (picked === FLOW_BACK) {
+    state.step = "url"
+    return
+  }
+
+  setSelectedCandidates(state, picked)
+  state.step = "category"
+}
+
+async function handleCategoryStep(state: ImportWizardState): Promise<FlowResult | void> {
+  if (state.selectedCandidates.length === 0) {
+    state.step = "url"
+    return
+  }
+
+  const label = state.selectedCandidates.length === 1
+    ? (state.selectedCandidates[0]?.name ?? "selected skill")
+    : `${state.selectedCandidates.length} selected skills`
+  const pickedCategory = await promptCategory(label, state.selectedCandidates.length > 1)
+  if (pickedCategory === undefined) return FLOW_CANCELLED
+  if (pickedCategory === FLOW_BACK) {
+    state.step = state.candidates.length > 1 ? "select-skill" : "url"
+    return
+  }
+
+  state.selectedCategory = pickedCategory
+  let planning:
+    | { status: "ok"; plans: ImportPlan[] }
+    | { status: typeof FLOW_CANCELLED }
+    | { status: "duplicate-targets"; duplicates: string[] }
+
+  try {
+    planning = await planImportsForSelection(state.selectedCandidates, state.selectedCategory)
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err))
+    return FLOW_CANCELLED
+  }
+
+  if (planning.status === FLOW_CANCELLED) return FLOW_CANCELLED
+  if (planning.status === "duplicate-targets") {
+    log.error("Two or more selected skills map to the same destination.")
+    for (const duplicate of planning.duplicates) {
+      log.raw(`  ${pc.dim(duplicate)}`)
+    }
+    log.info("Adjust your selection and try again.")
+    state.step = "select-skill"
+    return
+  }
+
+  state.importPlans = planning.plans
+  state.preparedImports = []
+  state.step = FLOW_CONFIRM
+}
+
+async function handleConfirmStep(state: ImportWizardState): Promise<FlowResult | void> {
+  if (state.importPlans.length === 0) {
+    state.step = "category"
+    return
+  }
+
+  if (state.preparedImports.length === 0) {
+    try {
+      state.preparedImports = await hydratePreparedImports(state.importPlans)
+    } catch (err) {
+      log.error(err instanceof Error ? err.message : String(err))
+      return FLOW_CANCELLED
+    }
+  }
+
+  const decision = await promptConfirm(state.preparedImports, state.selectedCategory)
+  if (decision === FLOW_BACK) {
+    state.step = "category"
+    return
+  }
+  if (decision === FLOW_CANCEL) return FLOW_CANCELLED
+
+  for (const item of state.preparedImports) {
+    const validationOk = await validateBeforeImport(item.candidate)
+    if (!validationOk) return FLOW_CANCELLED
+  }
+
+  let summary: ImportExecutionSummary
+  try {
+    summary = await runWithSpinner(
+      {
+        startMessage: state.preparedImports.length === 1
+          ? "Importing skill..."
+          : `Importing ${state.preparedImports.length} skills...`,
+        successMessage: (result: ImportExecutionSummary) => {
+          if (result.importedCount === 0) return "Failed"
+          return result.failedCount > 0 ? "Completed with warnings" : "Completed"
+        },
+      },
+      () => executeImports(state.preparedImports, state.selectedCategory)
+    )
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err))
+    return FLOW_CANCELLED
+  }
+
+  return printImportSummary(state.preparedImports, state.selectedCategory, summary)
 }
 
 export async function importSkillFlow(): Promise<FlowResult> {
-  let step: WizardStep = "url"
-  let candidates: SkillCandidatePreview[] = []
-  let selectedCandidates: SkillCandidatePreview[] = []
-  let preparedImports: PreparedImport[] = []
-  let selectedCategory: string | null = null
-  let importPlans: ImportPlan[] = []
+  const state: ImportWizardState = {
+    step: "url",
+    candidates: [],
+    selectedCandidates: [],
+    preparedImports: [],
+    selectedCategory: null,
+    importPlans: [],
+  }
 
   while (true) {
-    if (step === "url") {
-      const input = await promptSourceUrl()
-      if (!input) return "cancelled"
-      const spin = clack.spinner()
-      spin.start("Resolving source...")
+    let result: FlowResult | void
 
-      try {
-        candidates = await fetchSkillCandidatePreviewsFromInput(input)
-        spin.stop("Completed")
-      } catch (err) {
-        spin.stop("Failed")
-        log.error(err instanceof Error ? err.message : String(err))
-        continue
-      }
-
-      if (candidates.length === 1) {
-        selectedCandidates = candidates[0] ? [candidates[0]] : []
-        preparedImports = []
-        importPlans = []
-        step = "category"
-      } else {
-        selectedCandidates = []
-        preparedImports = []
-        importPlans = []
-        step = "select-skill"
-      }
-      continue
+    if (state.step === "url") {
+      result = await handleUrlStep(state)
+    } else if (state.step === "select-skill") {
+      result = await handleSelectSkillStep(state)
+    } else if (state.step === "category") {
+      result = await handleCategoryStep(state)
+    } else {
+      result = await handleConfirmStep(state)
     }
 
-    if (step === "select-skill") {
-      const picked = await promptSelectSkills(candidates)
-      if (!picked) return "cancelled"
-      if (picked === "back") {
-        step = "url"
-        continue
-      }
-      selectedCandidates = picked
-      preparedImports = []
-      importPlans = []
-      step = "category"
-      continue
-    }
-
-    if (step === "category") {
-      if (selectedCandidates.length === 0) {
-        step = "url"
-        continue
-      }
-
-      const label = selectedCandidates.length === 1
-        ? (selectedCandidates[0]?.name ?? "selected skill")
-        : `${selectedCandidates.length} selected skills`
-      const pickedCategory = await promptCategory(label, selectedCandidates.length > 1)
-      if (pickedCategory === undefined) return "cancelled"
-      if (pickedCategory === "back") {
-        step = candidates.length > 1 ? "select-skill" : "url"
-        continue
-      }
-
-      selectedCategory = pickedCategory
-      let planning:
-        | { status: "ok"; plans: ImportPlan[] }
-        | { status: "cancelled" }
-        | { status: "duplicate-targets"; duplicates: string[] }
-      try {
-        planning = await planImportsForSelection(selectedCandidates, selectedCategory)
-      } catch (err) {
-        log.error(err instanceof Error ? err.message : String(err))
-        return "cancelled"
-      }
-
-      if (planning.status === "cancelled") return "cancelled"
-      if (planning.status === "duplicate-targets") {
-        log.error("Two or more selected skills map to the same destination.")
-        for (const duplicate of planning.duplicates) {
-          log.raw(`  ${pc.dim(duplicate)}`)
-        }
-        log.info("Adjust your selection and try again.")
-        step = "select-skill"
-        continue
-      }
-
-      importPlans = planning.plans
-      preparedImports = []
-      step = "confirm"
-      continue
-    }
-
-    if (importPlans.length === 0) {
-      step = "category"
-      continue
-    }
-
-    if (preparedImports.length === 0) {
-      const hydrated: PreparedImport[] = []
-      try {
-        for (const plan of importPlans) {
-          const candidate = await hydrateSkillCandidate(plan.preview)
-          hydrated.push({
-            candidate,
-            targetRef: plan.targetRef,
-            action: plan.action,
-          })
-        }
-      } catch (err) {
-        log.error(err instanceof Error ? err.message : String(err))
-        return "cancelled"
-      }
-      preparedImports = hydrated
-    }
-
-    const decision = await promptConfirm(preparedImports, selectedCategory)
-
-    if (decision === "back") {
-      step = "category"
-      continue
-    }
-    if (decision === "cancel") {
-      return "cancelled"
-    }
-
-    for (const item of preparedImports) {
-      const validationOk = await validateBeforeImport(item.candidate)
-      if (!validationOk) return "cancelled"
-    }
-
-    const spin = clack.spinner()
-    spin.start(preparedImports.length === 1 ? "Importing skill..." : `Importing ${preparedImports.length} skills...`)
-    let importedCount = 0
-    let failedCount = 0
-    let filesWritten = 0
-
-    try {
-      for (const item of preparedImports) {
-        try {
-          await downloadAndSync(item.candidate, selectedCategory)
-          saveEntry(item.targetRef, item.candidate.canonicalUrl, { remoteBasePath: item.candidate.remoteBasePath })
-          importedCount++
-          filesWritten += item.candidate.files.length
-        } catch (err) {
-          failedCount++
-          log.error(`Failed to import "${item.candidate.name}"`, err)
-        }
-      }
-
-      if (importedCount === 0) {
-        spin.stop("Failed")
-        return "cancelled"
-      }
-
-      spin.stop(failedCount > 0 ? "Completed with warnings" : "Completed")
-    } catch (err) {
-      spin.stop("Failed")
-      log.error(err instanceof Error ? err.message : String(err))
-      return "cancelled"
-    }
-
-    if (preparedImports.length === 1 && importedCount === 1 && failedCount === 0) {
-      const only = preparedImports[0] as PreparedImport
-      const destinationHint = buildDestinationPath(only.candidate.name, selectedCategory)
-      log.success(`"${only.candidate.name}" imported to ${destinationHint}`)
-      log.raw(`  ${pc.dim(`Files written: ${filesWritten}`)}`)
-      return "completed"
-    }
-
-    log.success(`Imported: ${importedCount}`)
-    if (failedCount > 0) {
-      log.warn(`Failed: ${failedCount}`)
-    }
-    log.raw(`  ${pc.dim(`Files written: ${filesWritten}`)}`)
-    return failedCount > 0 ? "cancelled" : "completed"
+    if (result) return result
   }
 }

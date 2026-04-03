@@ -4,47 +4,22 @@ import * as pc from "../../ui/ansi.ts"
 import { ALL_IDE_KEYS } from "../../core/config.ts"
 import { deploySkillGlobal, deployAllGlobal } from "../../core/deploy.ts"
 import { discoverSkills } from "../../core/skills.ts"
-import type { IdeTarget, DeployResult } from "../../core/types.ts"
+import type { IdeTarget } from "../../core/types.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { selectIde, selectIdes } from "../prompts/select-ide.ts"
 import { selectSkill } from "../prompts/select-skill.ts"
 import { log } from "../../ui/logger.ts"
+import { renderDeployResults } from "../helpers/render-deploy-results.ts"
+import { runWithSpinner } from "../helpers/run-with-spinner.ts"
+import { FLOW_ALL, FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_CONFIRM } from "../constants/flow-tokens.ts"
 
 // ============================================================================
-// SHARED: render deploy results in menu context
-// ============================================================================
-
-function renderMenuResults(results: DeployResult[]): void {
-  const copied = results.filter((r) => r.status === "copied").length
-  const skipped = results.filter((r) => r.status === "skipped" && r.reason !== "IDE not installed").length
-  const uninstalledIdes = new Set(
-    results.filter((r) => r.status === "skipped" && r.reason === "IDE not installed").map((r) => r.ide)
-  )
-  const errors = results.filter((r) => r.status === "error")
-
-  if (errors.length > 0) {
-    for (const r of errors) {
-      log.error(`${r.skill.ref} → ${r.targetPath}: ${r.error ?? "unknown error"}`)
-    }
-  }
-
-  const parts = [
-    copied > 0 ? `${pc.green("✔")} ${pc.green(`${copied} skill${copied === 1 ? "" : "s"} copied`)}` : null,
-    skipped > 0 ? `${pc.yellow("⚠")} ${pc.yellow(`${skipped} skipped`)}` : null,
-    uninstalledIdes.size > 0 ? `${pc.yellow("⚠")} ${pc.yellow(`IDEs not installed: ${Array.from(uninstalledIdes).join(", ")}`)}` : null,
-    errors.length > 0 ? `${pc.red("✖")} ${pc.red(`${errors.length} errors`)}` : null,
-  ].filter(Boolean)
-
-  log.raw(parts.join("  "))
-}
-
-// ============================================================================
-// EXPAND IDE: "all" or IdeTarget → IdeTarget[]
+// EXPAND IDE: FLOW_ALL or IdeTarget → IdeTarget[]
 // CLI plan: "all" expanded before calling core
 // ============================================================================
 
-function expandIde(ide: IdeTarget | "all"): IdeTarget[] {
-  return ide === "all" ? [...ALL_IDE_KEYS] : [ide]
+function expandIde(ide: IdeTarget | typeof FLOW_ALL): IdeTarget[] {
+  return ide === FLOW_ALL ? [...ALL_IDE_KEYS] : [ide]
 }
 
 // ============================================================================
@@ -58,32 +33,32 @@ function formatIdeSummary(ides: IdeTarget[]): string {
   return ides.join(", ")
 }
 
-async function selectDeployAllTargets(): Promise<IdeTarget[] | "back" | undefined> {
+async function selectDeployAllTargets(): Promise<IdeTarget[] | typeof FLOW_BACK | undefined> {
   while (true) {
     const mode = await clack.select({
       message: "Deploy ALL skills globally to:",
       options: [
-        { value: "all", label: "All IDEs" },
+        { value: FLOW_ALL, label: "All IDEs" },
         { value: "select", label: "Select IDE(s)" },
-        { value: "back", label: pc.dim("← Back") },
+        { value: FLOW_BACK, label: pc.dim("← Back") },
       ],
     })
 
     if (clack.isCancel(mode)) return undefined
-    if (mode === "back") return "back"
-    if (mode === "all") return [...ALL_IDE_KEYS]
+    if (mode === FLOW_BACK) return FLOW_BACK
+    if (mode === FLOW_ALL) return [...ALL_IDE_KEYS]
 
     const selected = await selectIdes(true)
     if (!selected) return undefined
-    if (selected === "back") continue
+    if (selected === FLOW_BACK) continue
     return selected
   }
 }
 
 export async function deployAllGlobalUnifiedFlow(excludedRefs: string[]): Promise<FlowResult> {
   const ides = await selectDeployAllTargets()
-  if (!ides) return "cancelled"
-  if (ides === "back") return "back"
+  if (!ides) return FLOW_CANCELLED
+  if (ides === FLOW_BACK) return FLOW_BACK
 
   const skills = await discoverSkills()
   const eligible = skills.filter((s) => !excludedRefs.includes(s.ref))
@@ -106,22 +81,20 @@ export async function deployAllGlobalUnifiedFlow(excludedRefs: string[]): Promis
     message: `Deploy ${pc.bold(String(eligible.length))} skills to ${pc.bold(targetLabel)}?`,
   })
   if (clack.isCancel(confirmed) || !confirmed) {
-    return "cancelled"
+    return FLOW_CANCELLED
   }
 
-  const spin = clack.spinner()
-  spin.start("Deploying all skills...")
-
   try {
-    const results = await deployAllGlobal(ides, { excludedRefs })
-    spin.stop("Completed")
-    renderMenuResults(results)
+    const results = await runWithSpinner(
+      { startMessage: "Deploying all skills..." },
+      () => deployAllGlobal(ides, { excludedRefs })
+    )
+    renderDeployResults(results)
   } catch (err) {
-    spin.stop("Failed")
     log.error(err instanceof Error ? err.message : String(err))
   }
 
-  return "completed"
+  return FLOW_COMPLETED
 }
 
 // ============================================================================
@@ -129,17 +102,17 @@ export async function deployAllGlobalUnifiedFlow(excludedRefs: string[]): Promis
 // ============================================================================
 
 export async function deploySpecificGlobalFlow(): Promise<FlowResult> {
-  type Step = "skill" | "ide" | "confirm"
+  type Step = "skill" | "ide" | typeof FLOW_CONFIRM
 
   let step: Step = "skill"
-  let selectedSkill: Exclude<Awaited<ReturnType<typeof selectSkill>>, "back" | undefined> | null = null
-  let selectedIde: IdeTarget | "all" | null = null
+  let selectedSkill: Exclude<Awaited<ReturnType<typeof selectSkill>>, typeof FLOW_BACK | undefined> | null = null
+  let selectedIde: IdeTarget | typeof FLOW_ALL | null = null
 
   while (true) {
     if (step === "skill") {
       const skill = await selectSkill(undefined, true)
-      if (!skill) return "cancelled"
-      if (skill === "back") return "back"
+      if (!skill) return FLOW_CANCELLED
+      if (skill === FLOW_BACK) return FLOW_BACK
 
       selectedSkill = skill
       step = "ide"
@@ -148,14 +121,14 @@ export async function deploySpecificGlobalFlow(): Promise<FlowResult> {
 
     if (step === "ide") {
       const ide = await selectIde(true, true)
-      if (!ide) return "cancelled"
-      if (ide === "back") {
+      if (!ide) return FLOW_CANCELLED
+      if (ide === FLOW_BACK) {
         step = "skill"
         continue
       }
 
       selectedIde = ide
-      step = "confirm"
+      step = FLOW_CONFIRM
       continue
     }
 
@@ -164,39 +137,39 @@ export async function deploySpecificGlobalFlow(): Promise<FlowResult> {
       continue
     }
 
-    const ides = expandIde(selectedIde)
+    const skillToDeploy = selectedSkill
+    const ideToDeploy = selectedIde
+    const ides = expandIde(ideToDeploy)
     log.step("Summary:")
     log.bullet("Destination", "global")
-    log.bullet("IDEs", selectedIde === "all" ? `all (${ALL_IDE_KEYS.join(", ")})` : selectedIde)
-    log.bullet("Skill", selectedSkill.ref)
+    log.bullet("IDEs", ideToDeploy === FLOW_ALL ? `all (${ALL_IDE_KEYS.join(", ")})` : ideToDeploy)
+    log.bullet("Skill", skillToDeploy.ref)
 
     const decision = await clack.select({
       message: "Proceed with deploy?",
       options: [
-        { value: "confirm", label: pc.bold("Confirm") },
-        { value: "back", label: pc.dim("← Back") },
-        { value: "cancel", label: "Cancel" },
+        { value: FLOW_CONFIRM, label: pc.bold("Confirm") },
+        { value: FLOW_BACK, label: pc.dim("← Back") },
+        { value: FLOW_CANCEL, label: "Cancel" },
       ],
     })
 
-    if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
-    if (decision === "back") {
+    if (clack.isCancel(decision) || decision === FLOW_CANCEL) return FLOW_CANCELLED
+    if (decision === FLOW_BACK) {
       step = "ide"
       continue
     }
 
-    const spin = clack.spinner()
-    spin.start(`Deploying ${pc.bold(selectedSkill.ref)} to ${selectedIde}...`)
-
     try {
-      const results = await deploySkillGlobal(selectedSkill, ides)
-      spin.stop("Completed")
-      renderMenuResults(results)
+      const results = await runWithSpinner(
+        { startMessage: `Deploying ${pc.bold(skillToDeploy.ref)} to ${ideToDeploy}...` },
+        () => deploySkillGlobal(skillToDeploy, ides)
+      )
+      renderDeployResults(results)
     } catch (err) {
-      spin.stop("Failed")
       log.error(err instanceof Error ? err.message : String(err))
     }
 
-    return "completed"
+    return FLOW_COMPLETED
   }
 }

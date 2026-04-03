@@ -2,19 +2,24 @@ import * as clack from "@clack/prompts"
 import * as pc from "../../ui/ansi.ts"
 import { ALL_IDE_KEYS } from "../../core/config.ts"
 import type { IdeTarget } from "../../core/types.ts"
+import { promptMultiselectWithBack } from "../helpers/prompt-multiselect-with-back.ts"
+import { FLOW_ALL, FLOW_BACK } from "../constants/flow-tokens.ts"
 
 /**
  * Prompts the user to select a single IDE (or all).
  * Returns the selected IdeTarget, "all", "back", or undefined on cancel.
  * isCancel checked after every prompt.
  */
-export async function selectIde(includeAll = true, includeBack = false): Promise<IdeTarget | "all" | "back" | undefined> {
-  const options: { value: IdeTarget | "all" | "back"; label: string }[] = includeAll
-    ? [{ value: "all", label: pc.bold("All IDEs") }, ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))]
+export async function selectIde(
+  includeAll = true,
+  includeBack = false
+): Promise<IdeTarget | typeof FLOW_ALL | typeof FLOW_BACK | undefined> {
+  const options: { value: IdeTarget | typeof FLOW_ALL | typeof FLOW_BACK; label: string }[] = includeAll
+    ? [{ value: FLOW_ALL, label: pc.bold("All IDEs") }, ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))]
     : ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))
 
   if (includeBack) {
-    options.push({ value: "back", label: pc.dim("← Back") })
+    options.push({ value: FLOW_BACK, label: pc.dim("← Back") })
   }
 
   const result = await clack.select({
@@ -34,34 +39,15 @@ export async function selectIde(includeAll = true, includeBack = false): Promise
  * Returns selected IDEs, "back", or undefined on cancel.
  * Includes optional back item inside multiselect.
  */
-export async function selectIdes(includeBack = false): Promise<IdeTarget[] | "back" | undefined> {
-  while (true) {
-    const result = await clack.multiselect({
-      message: "Select target IDE(s):",
-      required: false,
-      options: [
-        ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k })),
-        ...(includeBack ? [{ value: "back" as const, label: pc.dim("← Back") }] : []),
-      ],
-    })
+export async function selectIdes(includeBack = false): Promise<IdeTarget[] | typeof FLOW_BACK | undefined> {
+  const result = await promptMultiselectWithBack({
+    message: "Select target IDE(s):",
+    options: ALL_IDE_KEYS.map((k) => ({ value: k, label: k })),
+    includeBack,
+    backValue: FLOW_BACK,
+    mixedBackWarning: "Select IDE(s) or Back, not both.",
+  })
 
-    if (clack.isCancel(result)) {
-      return undefined
-    }
-
-    const values = new Set(result as Array<IdeTarget | "back">)
-    if (values.has("back")) {
-      if (values.size === 1) return "back"
-      clack.log.warning("Select IDE(s) or Back, not both.")
-      continue
-    }
-
-    const selected = ALL_IDE_KEYS.filter((ide) => values.has(ide))
-    if (selected.length === 0) {
-      clack.log.warning("Press Space to select, Enter to submit.")
-      continue
-    }
-
-    return selected
-  }
+  if (result === undefined || result === FLOW_BACK) return result
+  return ALL_IDE_KEYS.filter((ide) => result.includes(ide))
 }

@@ -7,6 +7,7 @@ import { readUserConfig, saveUserConfig, SKILLS_HOME } from "../../core/user-con
 import { discoverSkills } from "../../core/skills.ts"
 import { log } from "../../ui/logger.ts"
 import type { FlowResult } from "../flow-result.ts"
+import { FLOW_BACK, FLOW_CANCELLED, FLOW_COMPLETED } from "../constants/flow-tokens.ts"
 
 // ============================================================================
 // CONFIG FLOW
@@ -31,12 +32,12 @@ export async function configFlow(): Promise<FlowResult> {
     message: "What would you like to do?",
     options: [
       { value: "set", label: setLabel, hint: current ? `currently: ${current}` : `default: ${defaultPath}` },
-      { value: "back", label: pc.dim("← Back") },
+      { value: FLOW_BACK, label: pc.dim("← Back") },
     ],
   })
 
-  if (clack.isCancel(action)) return "cancelled"
-  if (action === "back") return "back"
+  if (clack.isCancel(action)) return FLOW_CANCELLED
+  if (action === FLOW_BACK) return FLOW_BACK
 
   // ----------- set / change -----------
   const input = await clack.text({
@@ -52,7 +53,7 @@ export async function configFlow(): Promise<FlowResult> {
     },
   })
 
-  if (clack.isCancel(input)) return "cancelled"
+  if (clack.isCancel(input)) return FLOW_CANCELLED
 
   const newPath = (typeof input === "string" ? input : "").trim()
 
@@ -64,7 +65,7 @@ export async function configFlow(): Promise<FlowResult> {
     })
     if (clack.isCancel(create) || !create) {
       log.warn("Folder not created. Setting was not saved.")
-      return "cancelled"
+      return FLOW_CANCELLED
     }
     await fs.ensureDir(newPath)
     log.success(`Created ${newPath}`)
@@ -85,5 +86,5 @@ export async function configFlow(): Promise<FlowResult> {
   } else {
     log.warn("Detected 0 own skills in this folder.")
   }
-  return "completed"
+  return FLOW_COMPLETED
 }

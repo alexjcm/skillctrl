@@ -1,0 +1,82 @@
+[
+  {
+    "query": "Tengo este proyecto de typescript super sencillo en mi carpeta /workspace/my-lib. Ya terminé el código y quiero subirlo a npm para que otros puedan usarlo con `npm install my-lib`. ¿Puedes ayudarme a publicarlo?",
+    "should_trigger": true
+  },
+  {
+    "query": "I just created a CLI tool using node 20 for formatting markdown files, it's working locally. I want to publish it to the public npm registry under my own namespace but without the @username scope. Check my package.json please.",
+    "should_trigger": true
+  },
+  {
+    "query": "Help me release this awesome new library. Everything seems working but I'm getting a weird error about missing types when I run `npm pack`. Can you review my package to see if it's publish-ready?",
+    "should_trigger": true
+  },
+  {
+    "query": "Oye, actualicé mi librería a la versión 1.2.0 agregando unos breaking changes. ¿Qué pasos debo seguir para actualizar la versión existente en la registry de npm y evitar que se suban mis archivos .env?",
+    "should_trigger": true
+  },
+  {
+    "query": "Can you verify if the unscoped name 'super-string-utils' is taken on npm? If not, guide me through publishing the current directory to npm.",
+    "should_trigger": true
+  },
+  {
+    "query": "Estoy trabajando con Bun localmente pero necesito que esta tool se distribuya de forma compatible en node>=20 para el resto del equipo a través de npm. Revisa que build y configuraciones estén correctas para publicar.",
+    "should_trigger": true
+  },
+  {
+    "query": "My boss asked me to make our internal date-picker component public and open source it on npm. It's just this repo here. I need to add a README and figure out the exact commands.",
+    "should_trigger": true
+  },
+  {
+    "query": "Revisa mis entrypoints. Tengo un `bin` apuntando a `dist/cli.js` pero no estoy seguro de si el `package.json` está bien configurado para lanzar mi herramienta de consola al publicarlo.",
+    "should_trigger": true
+  },
+  {
+    "query": "Estoy atascado con mi paquete público de TS. npm publish me indica que no tengo los permisos, creo que es un problema de whoami o login. Guíame a través de tu checklist pre-publish.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can you check if my dist/ is properly generated and mapped in the package files list before I type npm publish?",
+    "should_trigger": true
+  },
+  {
+    "query": "Necesito configurar un pipeline en GitHub Actions para que mi paquete scoped `@mi-empresa/utils` se publique usando semantic-release de manera automática cada vez que mergeo a main.",
+    "should_trigger": false
+  },
+  {
+    "query": "Tengo este grandioso paquete que acabo de crear en Python y lo quiero compartir, ¿me dices cómo preparar el setup.py para enviarlo a PyPI?",
+    "should_trigger": false
+  },
+  {
+    "query": "Can you help me set up a monorepo with Turborepo or Lerna? We have 5 internal packages and want to symlink them for local development.",
+    "should_trigger": false
+  },
+  {
+    "query": "how do I consume a private npm package from github packages registry in my next.js frontend? i have the node PAT token ready.",
+    "should_trigger": false
+  },
+  {
+    "query": "Create a typescript interface for this JSON payload from the Stripe API so I can build a strong typed function.",
+    "should_trigger": false
+  },
+  {
+    "query": "My npm install is failing with ERESOLVE unable to resolve dependency tree for react@18. How do I fix this peer dependency conflict locally?",
+    "should_trigger": false
+  },
+  {
+    "query": "Can you read my `README.md` and translate it completely to Spanish?",
+    "should_trigger": false
+  },
+  {
+    "query": "Quiero desarrollar una aplicación web completa con React, Vite y publicarla en Vercel. Ayudame a desplegar.",
+    "should_trigger": false
+  },
+  {
+    "query": "How do I use Bun to bundle my frontend React app into a single index.html and index.js for distribution?",
+    "should_trigger": false
+  },
+  {
+    "query": "Estoy teniendo un problema con mi script de build. Al correr `npx tsc`, me lanza un error sobre un módulo de NodeJS no encontrado (path). ¿Cómo lo arreglo resolviendo un alias de imports?",
+    "should_trigger": false
+  }
+]

@@ -8,6 +8,7 @@ import { SKILLS_HOME, IMPORTED_DIR } from "../../core/user-config.ts"
 import { discoverCategories, discoverSkills } from "../../core/skills.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { log } from "../../ui/logger.ts"
+import { FLOW_COMPLETED } from "../constants/flow-tokens.ts"
 
 async function findExistingParent(startPath: string): Promise<string | undefined> {
   let current = path.resolve(startPath)
@@ -91,5 +92,5 @@ export async function doctorFlow(): Promise<FlowResult> {
   }
 
   log.success("Doctor completed.")
-  return "completed"
+  return FLOW_COMPLETED
 }

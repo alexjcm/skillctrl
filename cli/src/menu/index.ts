@@ -12,13 +12,14 @@ import { checkUpdatesFlow } from "./flows/check-updates.flow.ts"
 import { EXIT_CODES } from "../core/exit-codes.ts"
 import type { FlowResult } from "./flow-result.ts"
 import { log } from "../ui/logger.ts"
+import { FLOW_CANCELLED, FLOW_COMPLETED } from "./constants/flow-tokens.ts"
 
 // ============================================================================
 // MAIN MENU
 // ============================================================================
 
 export async function runMenu(): Promise<number> {
-  clack.intro(pc.bold(pc.cyan("✦ Skills Manager")))
+  clack.intro(pc.bold(pc.cyan("✦ skillctrl")))
 
   // First-run / migration notice is handled inside loadExcludedRefs (skills-config.ts).
   // After that call, ~/.skills/config.json is guaranteed to exist.
@@ -68,7 +69,7 @@ export async function runMenu(): Promise<number> {
 
     lastAction = action
 
-    let result: FlowResult = "completed"
+    let result: FlowResult = FLOW_COMPLETED
 
     switch (action) {
       case "deploy-all-global":
@@ -85,7 +86,7 @@ export async function runMenu(): Promise<number> {
         break
       case "list":
         await listFlow()
-        result = "completed"
+        result = FLOW_COMPLETED
         break
       case "settings":
         result = await configFlow()
@@ -98,7 +99,7 @@ export async function runMenu(): Promise<number> {
         break
     }
 
-    if (result === "cancelled") {
+    if (result === FLOW_CANCELLED) {
       log.warn("Action cancelled.")
     }
 
