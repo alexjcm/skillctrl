@@ -5,7 +5,13 @@ import * as pc from "../../ui/ansi.ts"
 import * as fs from "fs-extra"
 import { ALL_IDE_KEYS } from "../../core/config.ts"
 import { deploySkillToProject } from "../../core/deploy.ts"
-import type { IdeTarget, DeployResult } from "../../core/types.ts"
+import {
+  appendGitExcludeRules,
+  computeMissingGitExcludeRules,
+  resolveProjectGitExcludePath,
+  suggestGitExcludeRulesForIdes,
+} from "../../core/project-git-exclude.ts"
+import type { IdeTarget, DeployResult, Skill } from "../../core/types.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { selectIde } from "../prompts/select-ide.ts"
 import { multiSelectSkills } from "../prompts/select-skill.ts"
@@ -46,140 +52,198 @@ function renderMenuResults(results: DeployResult[]): void {
 // ============================================================================
 
 export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowResult> {
-  const startResult = await clack.select({
-    message: "Deploy to project/workspace:",
-    options: [
-      { value: "continue", label: "Continue" },
-      { value: "back", label: pc.dim("← Back") },
-    ],
-  })
-  if (clack.isCancel(startResult)) return "cancelled"
-  if (startResult === "back") return "back"
+  type Step = "path" | "ide" | "scope" | "confirm"
 
-  // Step 1: get project path (auto-detect if CWD is a project)
   const isGitRepo = await fs.pathExists(path.join(process.cwd(), ".git"))
   const isNpmProject = await fs.pathExists(path.join(process.cwd(), "package.json"))
 
-  const promptOptions: Parameters<typeof clack.text>[0] = {
-    message: "Enter project/workspace directory path:",
-    placeholder: process.cwd(),
-    validate: (value) => {
-      if (!value?.trim()) return "Path cannot be empty"
-    },
-  }
+  let step: Step = "path"
+  let projectDir: string | null = null
+  let ide: IdeTarget | "all" | null = null
+  let ides: IdeTarget[] = []
+  let skills: Skill[] | null = null
 
-  if (isGitRepo || isNpmProject) {
-    promptOptions.initialValue = process.cwd()
-  }
+  while (true) {
+    if (step === "path") {
+      const promptOptions: Parameters<typeof clack.text>[0] = {
+        message: "Enter project/workspace directory path:",
+        placeholder: process.cwd(),
+        validate: (value) => {
+          const trimmed = value?.trim() ?? ""
+          if (!trimmed) return "Path cannot be empty"
+          if (trimmed.toLowerCase() === "back") return
+        },
+      }
+      if (isGitRepo || isNpmProject) {
+        promptOptions.initialValue = process.cwd()
+      }
 
-  const rawPath = await clack.text(promptOptions)
-  if (clack.isCancel(rawPath)) return "cancelled"
+      const rawPath = await clack.text(promptOptions)
+      if (clack.isCancel(rawPath)) return "cancelled"
 
-  // use path.resolve, not concatenation
-  const projectDir = path.resolve(rawPath.trim() || process.cwd())
+      const normalized = rawPath.trim()
+      if (normalized.toLowerCase() === "back") return "back"
 
-  if (!(await fs.pathExists(projectDir))) {
-    log.error(`Directory does not exist: ${projectDir}`)
-    return "cancelled"
-  }
+      const resolved = path.resolve(normalized || process.cwd())
+      if (!(await fs.pathExists(resolved))) {
+        log.error(`Directory does not exist: ${resolved}`)
+        continue
+      }
 
-  // Step 2: select IDE
-  const ide = await selectIde(true, true)
-  if (!ide) return "cancelled"
-  if (ide === "back") return "back"
-
-  const ides: IdeTarget[] = ide === "all" ? [...ALL_IDE_KEYS] : [ide]
-
-  // Step 3: multi-select skills (all or subset)
-  const scopeResult = await clack.select({
-    message: "Which skills to deploy?",
-    options: [
-      { value: "all", label: "All skills (excluding excluded)" },
-      { value: "select", label: "Select specific skills" },
-      { value: "back", label: pc.dim("← Back") },
-    ],
-  })
-  if (clack.isCancel(scopeResult)) return "cancelled"
-  if (scopeResult === "back") return "back"
-
-  let skills
-  if (scopeResult === "all") {
-    const { discoverSkills, isExcluded } = await import("../../core/skills.ts")
-    const all = await discoverSkills()
-    skills = all.filter((s) => !isExcluded(s.ref, excludedRefs))
-  } else {
-    skills = await multiSelectSkills()
-    if (!skills) return "cancelled"
-    if (skills.length === 0) return "cancelled"
-  }
-
-  log.step("Summary:")
-  log.bullet("Destination", projectDir)
-  log.bullet("IDEs", ide === "all" ? `all (${ALL_IDE_KEYS.join(", ")})` : ide)
-  log.bullet("Skills", String(skills.length))
-
-  log.step("Skills to deploy:")
-  for (const skill of skills) {
-    log.bullet(skill.ref)
-  }
-
-  // Step 4: confirm
-  const confirmed = await clack.confirm({
-    message: `Deploy ${pc.bold(String(skills.length))} skill${skills.length === 1 ? "" : "s"} to ${pc.bold(path.basename(projectDir))} [${ide}]?`,
-  })
-  if (clack.isCancel(confirmed) || !confirmed) return "cancelled"
-
-  // Step 5: deploy
-  const spin = clack.spinner()
-  spin.start(`Deploying to ${projectDir}...`)
-
-  try {
-    const results: DeployResult[] = []
-    for (const skill of skills) {
-      const r = await deploySkillToProject(skill, ides, projectDir)
-      results.push(...r)
+      projectDir = resolved
+      step = "ide"
+      continue
     }
 
-    spin.stop("Done")
-    renderMenuResults(results)
-  } catch (err) {
-    spin.stop("Failed")
-    log.error(err instanceof Error ? err.message : String(err))
-  }
+    if (step === "ide") {
+      const selectedIde = await selectIde(true, true)
+      if (!selectedIde) return "cancelled"
+      if (selectedIde === "back") {
+        step = "path"
+        continue
+      }
 
-  // Step 6: Git Exclude prompt
-  const gitExcludePath = path.join(projectDir, ".git", "info", "exclude")
-  if (await fs.pathExists(gitExcludePath)) {
-    const shouldExclude = await clack.confirm({
-      message: `Do you want to exclude the generated skill directories from Git? (Updates ${pc.dim(".git/info/exclude")})`,
-      initialValue: true,
+      ide = selectedIde
+      ides = ide === "all" ? [...ALL_IDE_KEYS] : [ide]
+      step = "scope"
+      continue
+    }
+
+    if (step === "scope") {
+      const scopeResult = await clack.select({
+        message: "Which skills to deploy?",
+        options: [
+          { value: "all", label: "All skills (excluding excluded)" },
+          { value: "select", label: "Select specific skills" },
+          { value: "back", label: pc.dim("← Back") },
+        ],
+      })
+      if (clack.isCancel(scopeResult)) return "cancelled"
+      if (scopeResult === "back") {
+        step = "ide"
+        continue
+      }
+
+      if (scopeResult === "all") {
+        const { discoverSkills, isExcluded } = await import("../../core/skills.ts")
+        const all = await discoverSkills()
+        skills = all.filter((s) => !isExcluded(s.ref, excludedRefs))
+      } else {
+        const selectedSkills = await multiSelectSkills(undefined, true)
+        if (!selectedSkills) return "cancelled"
+        if (selectedSkills === "back") continue
+        skills = selectedSkills
+      }
+
+      if (!skills || skills.length === 0) {
+        log.warn("No skills selected.")
+        continue
+      }
+
+      step = "confirm"
+      continue
+    }
+
+    if (!projectDir || !ide || !skills || skills.length === 0) {
+      step = "path"
+      continue
+    }
+
+    log.step("Summary:")
+    log.bullet("Destination", projectDir)
+    log.bullet("IDEs", ide === "all" ? `all (${ALL_IDE_KEYS.join(", ")})` : ide)
+    log.bullet("Skills", String(skills.length))
+
+    log.step("Skills to deploy:")
+    for (const skill of skills) {
+      log.bullet(skill.ref)
+    }
+
+    const decision = await clack.select({
+      message: "Proceed with deploy?",
+      options: [
+        { value: "confirm", label: pc.bold("Confirm") },
+        { value: "back", label: pc.dim("← Back") },
+        { value: "cancel", label: "Cancel" },
+      ],
     })
+    if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
+    if (decision === "back") {
+      step = "scope"
+      continue
+    }
 
-    if (!clack.isCancel(shouldExclude) && shouldExclude) {
-      try {
-        let excludeContent = await fs.readFile(gitExcludePath, "utf-8")
-        let changesMade = false
+    const spin = clack.spinner()
+    spin.start(`Deploying to ${projectDir}...`)
 
-        const dirsToExclude = [".agent/", ".cursor/", ".windsurf/", ".claude/"]
+    try {
+      const results: DeployResult[] = []
+      for (const skill of skills) {
+        const r = await deploySkillToProject(skill, ides, projectDir)
+        results.push(...r)
+      }
 
-        for (const dir of dirsToExclude) {
-          if (!excludeContent.includes(dir)) {
-            excludeContent += `\n${dir}\n`
-            changesMade = true
+      spin.stop("Completed")
+      renderMenuResults(results)
+    } catch (err) {
+      spin.stop("Failed")
+      log.error(err instanceof Error ? err.message : String(err))
+    }
+
+    const gitExcludePath = await resolveProjectGitExcludePath(projectDir)
+    if (gitExcludePath) {
+      const desiredRules = suggestGitExcludeRulesForIdes(ides)
+      if (desiredRules.length > 0) {
+        const action = await clack.select({
+          message: "Git local excludes for generated skill directories:",
+          options: [
+            { value: "exclude-now", label: "Exclude now", hint: ".git/info/exclude (local)" },
+            { value: "skip", label: "Do not exclude" },
+          ],
+        })
+
+        if (!clack.isCancel(action) && action === "exclude-now") {
+          try {
+            const current = (await fs.pathExists(gitExcludePath))
+              ? await fs.readFile(gitExcludePath, "utf-8")
+              : ""
+            const missingRules = computeMissingGitExcludeRules(current, desiredRules)
+
+            const rel = path.relative(projectDir, gitExcludePath)
+            const displayPath = rel && !rel.startsWith("..") ? rel : gitExcludePath
+
+            log.step("Git exclude preview:")
+            log.bullet("File", displayPath)
+            log.bullet("Note", "Local only, not committed to repository history")
+
+            if (missingRules.length === 0) {
+              log.info("No new exclusion rules to add.")
+            } else {
+              log.bullet("Rules to add", String(missingRules.length))
+              for (const rule of missingRules) {
+                log.raw(`  • ${rule}`)
+              }
+
+              const confirmApply = await clack.confirm({
+                message: "Apply these exclusion rules now?",
+                initialValue: true,
+              })
+
+              if (!clack.isCancel(confirmApply) && confirmApply) {
+                const next = appendGitExcludeRules(current, missingRules)
+                await fs.outputFile(gitExcludePath, next, "utf-8")
+                log.success(`Git exclusion rules updated: ${missingRules.length} added.`)
+              } else {
+                log.info("Git exclusion update skipped.")
+              }
+            }
+          } catch (err) {
+            log.warn(`Could not update git local excludes: ${err instanceof Error ? err.message : String(err)}`)
           }
         }
-
-        if (changesMade) {
-          await fs.outputFile(gitExcludePath, excludeContent.trim() + "\n")
-          log.success("Git exclusion rules updated successfully.")
-        } else {
-          log.info("Git exclusion rules were already present. No changes made.")
-        }
-      } catch (err) {
-        log.warn(`Could not update .git/info/exclude: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
-  }
 
-  return "completed"
+    return "completed"
+  }
 }

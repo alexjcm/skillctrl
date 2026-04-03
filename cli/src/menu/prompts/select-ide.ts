@@ -10,7 +10,7 @@ import type { IdeTarget } from "../../core/types.ts"
  */
 export async function selectIde(includeAll = true, includeBack = false): Promise<IdeTarget | "all" | "back" | undefined> {
   const options: { value: IdeTarget | "all" | "back"; label: string }[] = includeAll
-    ? [{ value: "all", label: pc.bold("all IDEs") }, ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))]
+    ? [{ value: "all", label: pc.bold("All IDEs") }, ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))]
     : ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k }))
 
   if (includeBack) {
@@ -27,4 +27,41 @@ export async function selectIde(includeAll = true, includeBack = false): Promise
   }
 
   return result
+}
+
+/**
+ * Prompts the user to select one or more IDEs.
+ * Returns selected IDEs, "back", or undefined on cancel.
+ * Includes optional back item inside multiselect.
+ */
+export async function selectIdes(includeBack = false): Promise<IdeTarget[] | "back" | undefined> {
+  while (true) {
+    const result = await clack.multiselect({
+      message: "Select target IDE(s):",
+      required: false,
+      options: [
+        ...ALL_IDE_KEYS.map((k) => ({ value: k as IdeTarget, label: k })),
+        ...(includeBack ? [{ value: "back" as const, label: pc.dim("← Back") }] : []),
+      ],
+    })
+
+    if (clack.isCancel(result)) {
+      return undefined
+    }
+
+    const values = new Set(result as Array<IdeTarget | "back">)
+    if (values.has("back")) {
+      if (values.size === 1) return "back"
+      clack.log.warning("Select IDE(s) or Back, not both.")
+      continue
+    }
+
+    const selected = ALL_IDE_KEYS.filter((ide) => values.has(ide))
+    if (selected.length === 0) {
+      clack.log.warning("Press Space to select, Enter to submit.")
+      continue
+    }
+
+    return selected
+  }
 }

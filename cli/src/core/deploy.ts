@@ -124,16 +124,3 @@ export async function deployAllGlobal(
 
   return results
 }
-
-// ============================================================================
-// LOAD SKILL REF — resolve a ref string to a Skill object
-// ============================================================================
-
-export async function loadSkillByRef(ref: string): Promise<Skill> {
-  const allSkills = await discoverSkills()
-  const found = allSkills.find((s) => s.ref === ref)
-  if (!found) {
-    throw new Error(`Skill not found: "${ref}". Check the ref or run Doctor to verify your skills folder.`)
-  }
-  return found
-}

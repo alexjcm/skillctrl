@@ -1,48 +1,48 @@
+import path from "path"
+import os from "os"
 import * as clack from "@clack/prompts"
 import * as fs from "fs-extra"
 import * as pc from "../../ui/ansi.ts"
 import { readUserConfig, saveUserConfig, SKILLS_HOME } from "../../core/user-config.ts"
+import { discoverSkills } from "../../core/skills.ts"
 import { log } from "../../ui/logger.ts"
 import type { FlowResult } from "../flow-result.ts"
 
 // ============================================================================
 // CONFIG FLOW
-// Accessible from the main menu as "Settings".
-// Allows the user to view or change skillsDir (or clear it entirely).
+// Accessible from the main menu as "Own Skills Dir".
+// Allows the user to view or change skillsDir.
 // ============================================================================
 
 export async function configFlow(): Promise<FlowResult> {
-  log.step("Settings")
-
   const cfg = readUserConfig() ?? { excludedSkills: [] }
   const current = cfg.skillsDir
+  const defaultPath = path.join(os.homedir(), "my-skills")
+  const setLabel = current ? "Change own skills dir" : "Set own skills dir"
 
   log.raw(`  ${pc.bold("Skills home:")} ${SKILLS_HOME}`)
-  log.raw(`  ${pc.bold("Own skills folder:")} ${current ? pc.green(current) : pc.dim("not configured")}`)
+  log.raw(
+    `  ${pc.bold("Own skills dir:")} ${current ? pc.green(current) : pc.dim("not configured")}`
+  )
+  log.raw(`  ${pc.dim("Tip: This does not move files; it only changes where the CLI reads own skills.")}`)
   log.raw("")
 
   const action = await clack.select({
     message: "What would you like to do?",
     options: [
-      { value: "set", label: "Set / change own skills folder", hint: current ? `currently: ${current}` : "not set" },
-      { value: "clear", label: "Clear own skills folder", hint: "revert to imported-only mode" },
-      { value: "back", label: pc.dim("Back") },
+      { value: "set", label: setLabel, hint: current ? `currently: ${current}` : `default: ${defaultPath}` },
+      { value: "back", label: pc.dim("← Back") },
     ],
   })
 
-  if (clack.isCancel(action) || action === "back") return "completed"
-
-  if (action === "clear") {
-    saveUserConfig({ ...cfg, skillsDir: undefined })
-    log.success("Own skills folder cleared. CLI will use only ~/.skills/imported/.")
-    return "completed"
-  }
+  if (clack.isCancel(action)) return "cancelled"
+  if (action === "back") return "back"
 
   // ----------- set / change -----------
   const input = await clack.text({
-    message: "Absolute path to your skills folder:",
-    placeholder: current ?? "e.g. /Users/you/my-skills",
-    initialValue: current ?? "",
+    message: "Absolute path to your skills dir:",
+    placeholder: current ?? defaultPath,
+    initialValue: current ?? defaultPath,
     validate(value) {
       const trimmed = (value ?? "").trim()
       if (!trimmed) return "Path cannot be empty."
@@ -71,6 +71,19 @@ export async function configFlow(): Promise<FlowResult> {
   }
 
   saveUserConfig({ ...cfg, skillsDir: newPath })
-  log.success(`Own skills folder set to: ${pc.green(newPath)}`)
+  let ownSkillsCount = 0
+  try {
+    const allSkills = await discoverSkills()
+    ownSkillsCount = allSkills.filter((skill) => skill.source === "own").length
+  } catch {
+    // Non-fatal; keep confirmation message concise even if scan fails.
+  }
+
+  log.success(`Own skills dir updated: ${pc.green(newPath)}`)
+  if (ownSkillsCount > 0) {
+    log.info(`Detected ${ownSkillsCount} own skill${ownSkillsCount === 1 ? "" : "s"} in this folder.`)
+  } else {
+    log.warn("Detected 0 own skills in this folder.")
+  }
   return "completed"
 }

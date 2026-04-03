@@ -17,6 +17,19 @@ program
   .name("skills")
   .description("Manage and deploy AI agent skills")
   .version("1.0.0")
+  .showHelpAfterError("(run with --help for usage)")
+  .addHelpText(
+    "after",
+    `
+Behavior:
+  no arguments   open the interactive TUI menu
+
+Examples:
+  $ skills
+  $ skills --help
+  $ skills --version
+`
+  )
 
 // === 1. TUI MODE ===
 // No arguments → launch interactive TUI menu directly

@@ -38,7 +38,7 @@ async function isWritablePath(targetPath: string): Promise<{ ok: boolean; checke
 }
 
 export async function doctorFlow(): Promise<FlowResult> {
-  log.step("Doctor: Environment Diagnostics")
+  log.step("Doctor (diagnostics)")
 
   log.bullet("HOME", env.HOME)
   log.bullet("Skills home", `${SKILLS_HOME} ${(await fs.pathExists(SKILLS_HOME)) ? pc.green("(found)") : pc.yellow("(will be created)")}`)
@@ -49,7 +49,7 @@ export async function doctorFlow(): Promise<FlowResult> {
     const skillRootExists = await fs.pathExists(skillsDir)
     log.bullet("Own skills dir", `${skillsDir} ${skillRootExists ? pc.green("(found)") : pc.red("(missing)")}`)
   } else {
-    log.bullet("Own skills dir", pc.dim("not configured  (set via Settings → Configure skills folder)"))
+    log.bullet("Own skills dir", pc.dim("not configured  (set via Own Skills Dir)"))
   }
 
   // --- Imported skills dir ---

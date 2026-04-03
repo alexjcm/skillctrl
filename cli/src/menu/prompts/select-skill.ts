@@ -44,27 +44,45 @@ export async function selectSkill(category?: string, includeBack = false): Promi
  * Used in the "Deploy to project" flow.
  * isCancel checked after every prompt.
  */
-export async function multiSelectSkills(category?: string): Promise<Skill[] | undefined> {
+export async function multiSelectSkills(category?: string, includeBack = false): Promise<Skill[] | "back" | undefined> {
   const skills = await discoverSkills(category ? [category] : undefined)
 
   if (skills.length === 0) {
-    clack.log.warning("No skills found")
+    clack.log.warning(`No skills found${category ? ` in category "${category}"` : ""}`)
     return []
   }
 
-  const result = await clack.multiselect({
-    message: "Select skills to deploy (space to toggle, enter to confirm):",
-    options: skills.map((s) => ({
-      value: s,
-      label: `${pc.dim(s.category + "/")}${s.name}`,
-      ...(s.description ? { hint: pc.dim(s.description) } : {}),
-    })),
-    required: true,
-  })
+  while (true) {
+    const result = await clack.multiselect({
+      message: "Select skills to deploy:",
+      options: [
+        ...skills.map((s) => ({
+          value: s as Skill | "back",
+          label: `${pc.dim(s.category + "/")}${s.name}`,
+          ...(s.description ? { hint: pc.dim(s.description) } : {}),
+        })),
+        ...(includeBack ? [{ value: "back" as const, label: pc.dim("← Back") }] : []),
+      ],
+      required: false,
+    })
 
-  if (clack.isCancel(result)) {
-    return undefined
+    if (clack.isCancel(result)) {
+      return undefined
+    }
+
+    const values = new Set(result as Array<Skill | "back">)
+    if (values.has("back")) {
+      if (values.size === 1) return "back"
+      clack.log.warning("Select skills or Back, not both.")
+      continue
+    }
+
+    const selectedSkills = skills.filter((skill) => values.has(skill))
+    if (selectedSkills.length === 0) {
+      clack.log.warning("Press Space to select, Enter to submit.")
+      continue
+    }
+
+    return selectedSkills
   }
-
-  return result
 }

@@ -48,8 +48,11 @@ const MSG_INVALID_URL = "Invalid GitHub URL. Paste a github.com link or use 'own
 const MSG_PATH_NOT_FOUND = "Path not found. Check the URL and make sure the repository is public."
 const MSG_RATE_LIMIT = "GitHub rate limit reached (60 req/hour). Please wait a few minutes and try again."
 const MSG_NO_SKILLS = "No skills found here. Each skill directory must contain a SKILL.md file."
+const MSG_REPO_TREE_TOO_LARGE =
+  "Repository is too large to scan automatically. Paste a direct URL to the skills dir."
 const MSG_NETWORK = "Could not reach GitHub. Check your internet connection."
 const MAX_CONCURRENT_REQUESTS = 8
+const TREE_PAYLOAD_MAX_BYTES = 8 * 1024 * 1024
 
 const REPO_SCAN_PATHS = ["skills", "skills/.curated", "skills/.system", "skills/.experimental", ""]
 
@@ -149,6 +152,97 @@ function buildContentsApiUrl(owner: string, repo: string, contentPath: string, b
 
 function buildRepoApiUrl(owner: string, repo: string): string {
   return `https://api.github.com/repos/${owner}/${repo}`
+}
+
+function buildGitTreeApiUrl(owner: string, repo: string, branch: string): string {
+  return `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+}
+
+function parseContentLength(headers: Headers): number | undefined {
+  const raw = headers.get("content-length")
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined
+  return parsed
+}
+
+async function readResponseTextWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const contentLength = parseContentLength(response.headers)
+  if (contentLength !== undefined && contentLength > maxBytes) {
+    throw new Error(MSG_REPO_TREE_TOO_LARGE)
+  }
+
+  if (!response.body) {
+    const buffer = new Uint8Array(await response.arrayBuffer())
+    if (buffer.byteLength > maxBytes) {
+      throw new Error(MSG_REPO_TREE_TOO_LARGE)
+    }
+    return new TextDecoder().decode(buffer)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let totalBytes = 0
+  let text = ""
+
+  while (true) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    if (!chunk.value) continue
+
+    totalBytes += chunk.value.byteLength
+    if (totalBytes > maxBytes) {
+      try {
+        await reader.cancel()
+      } catch {
+        // ignore cancellation errors
+      }
+      throw new Error(MSG_REPO_TREE_TOO_LARGE)
+    }
+
+    text += decoder.decode(chunk.value, { stream: true })
+  }
+
+  text += decoder.decode()
+  return text
+}
+
+async function fetchJsonWithByteLimit(url: string, maxBytes: number): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: buildGitHubHeaders(true),
+    })
+  } catch {
+    throw new Error(MSG_NETWORK)
+  }
+
+  if (!response.ok) {
+    const fallbackMessage = `GitHub API request failed (${response.status})`
+    let message = fallbackMessage
+
+    try {
+      const body = await response.json() as { message?: string }
+      if (body.message) message = body.message
+    } catch {
+      // ignore parse errors and keep fallback
+    }
+
+    const remaining = response.headers.get("x-ratelimit-remaining")
+    const resetAt = extractRateLimitResetIso(response.headers)
+    if (response.status === 403 && (remaining === "0" || /rate limit/i.test(message))) {
+      throw new GitHubApiError(response.status, MSG_RATE_LIMIT, resetAt)
+    }
+
+    throw new GitHubApiError(response.status, message, resetAt)
+  }
+
+  const text = await readResponseTextWithLimit(response, maxBytes)
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    throw new Error("Invalid GitHub API JSON response")
+  }
 }
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -378,41 +472,6 @@ async function collectSkillRootsFromDirectory(
   return [...new Set(roots)]
 }
 
-async function fetchCandidatesFromRoots(
-  owner: string,
-  repo: string,
-  branch: string,
-  roots: string[]
-): Promise<SkillCandidate[]> {
-  const results = await mapSettledWithConcurrency(
-    roots,
-    MAX_CONCURRENT_REQUESTS,
-    async (root) => fetchSkillCandidate(owner, repo, branch, root)
-  )
-  const candidates: SkillCandidate[] = []
-  let firstNonSkillError: Error | null = null
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      candidates.push(result.value)
-      continue
-    }
-
-    const reason = result.reason
-    const err = reason instanceof Error ? reason : new Error(String(reason))
-    if (err.message === MSG_NO_SKILLS) {
-      continue
-    }
-    if (!firstNonSkillError) {
-      firstNonSkillError = err
-    }
-  }
-
-  if (candidates.length > 0) return candidates
-  if (firstNonSkillError) throw firstNonSkillError
-  throw new Error(MSG_NO_SKILLS)
-}
-
 async function fetchSkillFiles(owner: string, repo: string, branch: string, remoteBasePath: string): Promise<GitHubFile[]> {
   const payload = await getContents(owner, repo, remoteBasePath, branch)
   const listing = toDirectoryListing(payload)
@@ -493,6 +552,51 @@ function previewFromRoot(owner: string, repo: string, branch: string, remoteBase
   }
 }
 
+type GitTreeEntry = {
+  path: string
+  type: string
+}
+
+type GitTreePayload = {
+  truncated?: boolean
+  tree?: unknown
+}
+
+function rootsFromGitTreePayload(payload: unknown): { roots: string[]; truncated: boolean } {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(MSG_NO_SKILLS)
+  }
+
+  const data = payload as GitTreePayload
+  const truncated = data.truncated === true
+  if (!Array.isArray(data.tree)) {
+    return { roots: [], truncated }
+  }
+
+  const roots = new Set<string>()
+  for (const entry of data.tree) {
+    if (!entry || typeof entry !== "object") continue
+    const maybe = entry as Partial<GitTreeEntry>
+    if (maybe.type !== "blob" || typeof maybe.path !== "string") continue
+    if (!(maybe.path === "SKILL.md" || maybe.path.endsWith("/SKILL.md"))) continue
+
+    const dir = path.posix.dirname(maybe.path)
+    const root = dir === "." ? "" : normalizeRemotePath(dir)
+    roots.add(root)
+  }
+
+  return { roots: [...roots].sort((a, b) => a.localeCompare(b)), truncated }
+}
+
+async function discoverSkillRootsViaRepoTree(owner: string, repo: string, branch: string): Promise<string[]> {
+  const payload = await fetchJsonWithByteLimit(buildGitTreeApiUrl(owner, repo, branch), TREE_PAYLOAD_MAX_BYTES)
+  const parsed = rootsFromGitTreePayload(payload)
+  if (parsed.truncated) {
+    throw new Error(MSG_REPO_TREE_TOO_LARGE)
+  }
+  return parsed.roots
+}
+
 async function fetchPreviewCandidatesFromRef(ref: GitHubRef): Promise<SkillCandidatePreview[]> {
   const roots: string[] = []
   if (!ref.isRepoLevel) {
@@ -548,7 +652,10 @@ async function fetchPreviewCandidatesFromRef(ref: GitHubRef): Promise<SkillCandi
   for (const result of probeResults) {
     if (result.status === "fulfilled") orderedRoots.push(...result.value)
   }
-  const uniqueRoots = [...new Set(orderedRoots)]
+  let uniqueRoots = [...new Set(orderedRoots)]
+  if (uniqueRoots.length === 0) {
+    uniqueRoots = [...new Set(await discoverSkillRootsViaRepoTree(ref.owner, ref.repo, defaultBranch))]
+  }
   if (uniqueRoots.length === 0) {
     throw new Error(MSG_NO_SKILLS)
   }
@@ -561,18 +668,6 @@ async function fetchPreviewCandidatesFromRef(ref: GitHubRef): Promise<SkillCandi
     }
   }
   return [...byName.values()]
-}
-
-async function fetchPathLevelCandidates(ref: GitHubRef): Promise<SkillCandidate[]> {
-  const previews = await fetchPreviewCandidatesFromRef(ref)
-  const branch = previews[0]?.branch
-  if (!branch) throw new Error(MSG_PATH_NOT_FOUND)
-  return fetchCandidatesFromRoots(
-    ref.owner,
-    ref.repo,
-    branch,
-    previews.map((p) => p.remoteBasePath)
-  )
 }
 
 async function discoverSkillRootsAtLocation(
@@ -608,18 +703,6 @@ async function discoverSkillRootsAtLocation(
   return collectSkillRootsFromDirectory(owner, repo, branch, location, listing)
 }
 
-async function fetchRepoLevelCandidates(ref: GitHubRef): Promise<SkillCandidate[]> {
-  const previews = await fetchPreviewCandidatesFromRef(ref)
-  const branch = previews[0]?.branch
-  if (!branch) throw new Error(MSG_PATH_NOT_FOUND)
-  const fetched = await fetchCandidatesFromRoots(ref.owner, ref.repo, branch, previews.map((p) => p.remoteBasePath))
-  const byName = new Map<string, SkillCandidate>()
-  for (const candidate of fetched) {
-    if (!byName.has(candidate.name)) byName.set(candidate.name, candidate)
-  }
-  return [...byName.values()]
-}
-
 function normalizeError(err: unknown): Error {
   if (err instanceof GitHubApiError) {
     if (err.status === 404) return new Error(MSG_PATH_NOT_FOUND)
@@ -633,6 +716,7 @@ function normalizeError(err: unknown): Error {
     err.message === MSG_INVALID_URL ||
     err.message === MSG_PATH_NOT_FOUND ||
     err.message === MSG_RATE_LIMIT ||
+    err.message === MSG_REPO_TREE_TOO_LARGE ||
     err.message === MSG_NO_SKILLS ||
     err.message === MSG_NETWORK
   )) {
@@ -644,22 +728,6 @@ function normalizeError(err: unknown): Error {
   }
 
   return new Error(MSG_NETWORK)
-}
-
-export async function fetchSkillCandidatesFromRef(ref: GitHubRef): Promise<SkillCandidate[]> {
-  try {
-    if (ref.isRepoLevel) {
-      return await fetchRepoLevelCandidates(ref)
-    }
-    return await fetchPathLevelCandidates(ref)
-  } catch (err) {
-    throw normalizeError(err)
-  }
-}
-
-export async function fetchSkillCandidatesFromInput(input: string): Promise<SkillCandidate[]> {
-  const ref = parseGitHubUrl(input)
-  return fetchSkillCandidatesFromRef(ref)
 }
 
 export async function fetchSkillCandidatePreviewsFromRef(ref: GitHubRef): Promise<SkillCandidatePreview[]> {

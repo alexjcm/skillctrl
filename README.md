@@ -8,10 +8,10 @@ Centralized repository for managing AI agent skills.
 ---
 
 ### 🚀 Highlights
-- **Multiple IDE Support**: Deploy skills to VS Code, Windsurf, Claude Code, Cursor, and more.
+- **Multiple IDE Support**: Deploy skills to IntelliJ (Codeium), Windsurf, Antigravity, Claude Code, Cursor, and Codex.
 - **TUI-Driven Interface**: Interactive terminal wizard for seamless management.
 - **GitHub Import & Update**: Import skills from GitHub URLs or `owner/repo`, then check/update later from registry.
-- **User Config**: Manage your own skills folder via `~/.skills/config.json`.
+- **User Config**: Manage your own skills dir via `~/.skills/config.json`.
 - **Cross-Platform**: Works perfectly on Mac, Windows, and Linux.
 
 ---
@@ -39,7 +39,13 @@ To expand your local toolkit:
 
 The CLI manages and deploys skills to your local environment.
 
-### 1. Build the CLI
+### Runtime model
+- **Bun**: development only (`dev`, local runs, tests/lint in this repo).
+- **Node.js + npm**: distribution/runtime for the `skills` command.
+
+Recommended Node.js version for distribution/runtime: **24+**.
+
+### 1. Go to CLI directory
 ```bash
 cd cli
 ```
@@ -57,7 +63,7 @@ npm install
 npm link
 ```
 
-> After linking, you can simply run `skills` from any directory to open the interactive menu.
+> For distribution/runtime, prefer Node/NPM linking (`npm link`), then run `skills` from any directory.
 
 ---
 
@@ -70,11 +76,28 @@ The easiest way to manage your skills is via the guided wizard:
 # Global command (if linked)
 skills
 
-# Or local command
+# Or local development run
+cd cli
 bun start
 ```
 
 This TUI handles IDE targeting, project/workspace path resolution, and automatic Git exclusion handling. It also includes a **Doctor (diagnostics)** option to validate your environment.
+
+### ❓ Command Help
+
+```bash
+skills --help
+skills --version
+```
+
+Behavior:
+- `skills` (no arguments) opens the interactive TUI menu.
+- `skills --help` shows available CLI options.
+- `skills --version` prints the current CLI version.
+
+`skills --help` includes:
+- Behavior summary (`no arguments` opens the interactive menu).
+- Quick examples (`skills`, `skills --help`, `skills --version`).
 
 ---
 

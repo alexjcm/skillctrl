@@ -110,4 +110,157 @@ describe("github-fetcher critical behavior", () => {
 
     expect(calls.some((url) => url.includes("raw.githubusercontent.com"))).toBe(false)
   })
+
+  it("falls back to repo tree scan when quick paths find no skills", async () => {
+    delete process.env["GITHUB_TOKEN"]
+    const calls: string[] = []
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.curated?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.system?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.experimental?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents?ref=main"
+      ) {
+        return jsonResponse({ message: "Not Found" }, 404)
+      }
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills/git/trees/main?recursive=1") {
+        return jsonResponse({
+          truncated: false,
+          tree: [
+            { path: "packages/skills-catalog/skills/domain-analysis/SKILL.md", type: "blob" },
+            { path: "packages/skills-catalog/skills/component-flattening-analysis/SKILL.md", type: "blob" },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const previews = await fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+
+    expect(previews.map((p) => p.remoteBasePath).sort()).toEqual([
+      "packages/skills-catalog/skills/component-flattening-analysis",
+      "packages/skills-catalog/skills/domain-analysis",
+    ])
+
+    expect(calls.filter((url) => url.includes("/git/trees/")).length).toBe(1)
+  })
+
+  it("stops when recursive tree response is truncated", async () => {
+    delete process.env["GITHUB_TOKEN"]
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.curated?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.system?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.experimental?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents?ref=main"
+      ) {
+        return jsonResponse({ message: "Not Found" }, 404)
+      }
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills/git/trees/main?recursive=1") {
+        return jsonResponse({ truncated: true, tree: [] })
+      }
+
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    await expect(
+      fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    ).rejects.toThrow("too large to scan automatically")
+  })
+
+  it("stops tree fallback when payload exceeds 8MB by content-length", async () => {
+    delete process.env["GITHUB_TOKEN"]
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.curated?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.system?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.experimental?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents?ref=main"
+      ) {
+        return jsonResponse({ message: "Not Found" }, 404)
+      }
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills/git/trees/main?recursive=1") {
+        return new Response("{}", {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String((8 * 1024 * 1024) + 1),
+          },
+        })
+      }
+
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    await expect(
+      fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    ).rejects.toThrow("too large to scan automatically")
+  })
+
+  it("keeps no-skills result when tree fallback has no SKILL.md entries", async () => {
+    delete process.env["GITHUB_TOKEN"]
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.curated?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.system?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents/skills/.experimental?ref=main" ||
+        url === "https://api.github.com/repos/tech-leads-club/agent-skills/contents?ref=main"
+      ) {
+        return jsonResponse({ message: "Not Found" }, 404)
+      }
+
+      if (url === "https://api.github.com/repos/tech-leads-club/agent-skills/git/trees/main?recursive=1") {
+        return jsonResponse({
+          truncated: false,
+          tree: [
+            { path: "README.md", type: "blob" },
+            { path: "packages/skills-catalog/README.md", type: "blob" },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    await expect(
+      fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    ).rejects.toThrow("No skills found")
+  })
 })

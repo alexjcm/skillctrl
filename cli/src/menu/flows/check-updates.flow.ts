@@ -2,8 +2,10 @@ import path from "path"
 import * as clack from "@clack/prompts"
 import fg from "fast-glob"
 import * as fs from "fs-extra"
+import * as pc from "../../ui/ansi.ts"
 import type { SkillCandidate, SkillCandidatePreview } from "../../core/github-fetcher.ts"
 import { fetchSkillCandidatePreviewsFromInput, hydrateSkillCandidate } from "../../core/github-fetcher.ts"
+import { assertSafePathSegment, resolvePathInside } from "../../core/path-safety.ts"
 import { getAllEntries, saveEntry, type ImportEntry } from "../../core/skill-imports.ts"
 import { IMPORTED_DIR } from "../../core/user-config.ts"
 import type { FlowResult } from "../flow-result.ts"
@@ -33,11 +35,23 @@ function splitRef(ref: string): { category: string | null; name: string } {
 
 function localSkillPathFromRef(ref: string): string {
   const parts = ref.replace(/\\/g, "/").split("/").filter(Boolean)
-  return path.join(IMPORTED_DIR, ...parts)
+  if (parts.length === 0) {
+    throw new Error(`Invalid imported skill ref: "${ref}"`)
+  }
+
+  const safeRefPath = parts
+    .map((segment) => assertSafePathSegment(segment, "Imported skill ref segment"))
+    .join("/")
+
+  return resolvePathInside(IMPORTED_DIR, safeRefPath, `Imported skill ref "${ref}"`)
 }
 
 function normalizeRemotePath(remotePath: string): string {
-  return remotePath.replace(/^\/+/, "").replace(/\\/g, "/")
+  const normalized = remotePath.replace(/^\/+/, "").replace(/\\/g, "/").trim()
+  if (!normalized) {
+    throw new Error(`Invalid remote file path: "${remotePath}"`)
+  }
+  return normalized
 }
 
 function selectCandidateForRef(ref: string, entry: ImportEntry, candidates: SkillCandidatePreview[]): SkillCandidatePreview | null {
@@ -111,7 +125,7 @@ async function compareLocalVsRemote(ref: string, candidate: SkillCandidate): Pro
 
   const remoteBuffers = await fetchRemoteBuffers(candidate)
   for (const rel of remoteFiles) {
-    const localPath = path.join(localDir, ...rel.split("/"))
+    const localPath = resolvePathInside(localDir, rel, `Remote file path "${rel}"`)
     const localBuffer = await fs.readFile(localPath)
     const remoteBuffer = remoteBuffers.get(rel)
     if (!remoteBuffer || !remoteBuffer.equals(localBuffer)) {
@@ -176,7 +190,7 @@ async function syncSkillFromReport(report: CheckReport): Promise<void> {
   await fs.ensureDir(destination)
 
   for (const [remotePath, content] of report.remoteBuffers.entries()) {
-    const targetPath = path.join(destination, ...remotePath.split("/"))
+    const targetPath = resolvePathInside(destination, remotePath, `Remote file path "${remotePath}"`)
     await fs.ensureDir(path.dirname(targetPath))
     await fs.writeFile(targetPath, content)
   }
@@ -184,22 +198,39 @@ async function syncSkillFromReport(report: CheckReport): Promise<void> {
   saveEntry(report.ref, report.candidate.canonicalUrl, { remoteBasePath: report.candidate.remoteBasePath })
 }
 
-async function selectReportsToUpdate(candidates: CheckReport[]): Promise<CheckReport[] | undefined> {
+async function selectReportsToUpdate(candidates: CheckReport[]): Promise<CheckReport[] | "back" | undefined> {
   if (candidates.length === 0) return []
 
-  const selected = await clack.multiselect({
-    message: "Select imported skills to update:",
-    required: true,
-    options: candidates.map((report) => ({
-      value: report.ref,
-      label: report.ref,
-      hint: report.entry.source,
-    })),
-  })
+  while (true) {
+    const selected = await clack.multiselect({
+      message: "Select imported skills to update:",
+      required: false,
+      options: [
+        ...candidates.map((report) => ({
+          value: report.ref,
+          label: report.ref,
+          hint: report.entry.source,
+        })),
+        { value: "__back", label: pc.dim("← Back") },
+      ],
+    })
 
-  if (clack.isCancel(selected)) return undefined
-  const selectedSet = new Set(selected)
-  return candidates.filter((report) => selectedSet.has(report.ref))
+    if (clack.isCancel(selected)) return undefined
+
+    const selectedSet = new Set(selected as string[])
+    if (selectedSet.has("__back")) {
+      if (selectedSet.size === 1) return "back"
+      clack.log.warning("Select skills or Back, not both.")
+      continue
+    }
+
+    if (selectedSet.size === 0) {
+      clack.log.warning("Press Space to select, Enter to submit.")
+      continue
+    }
+
+    return candidates.filter((report) => selectedSet.has(report.ref))
+  }
 }
 
 export async function checkUpdatesFlow(): Promise<FlowResult> {
@@ -223,7 +254,7 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
     reports.push(report)
   }
 
-  spin.stop("Check completed")
+  spin.stop("Completed")
 
   for (const report of reports) {
     renderReport(report)
@@ -235,30 +266,34 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
     return "completed"
   }
 
-  const decision = await clack.select({
-    message: "Update options:",
-    options: [
-      { value: "select", label: "Select to update", hint: "recommended" },
-      { value: "all", label: "Update all available" },
-      { value: "cancel", label: "Cancel" },
-    ],
-  })
-  if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
-
-  let selectedReports = updatesAvailable
-  if (decision === "all") {
-    const confirmAll = await clack.confirm({
-      message:
-        `Update all ${updatesAvailable.length} skill${updatesAvailable.length === 1 ? "" : "s"}?\n` +
-        "This sync is destructive: local changes in imported skills will be overwritten.",
-      initialValue: false,
+  let selectedReports: CheckReport[] | null = null
+  while (!selectedReports) {
+    const decision = await clack.select({
+      message: "Update options:",
+      options: [
+        { value: "select", label: "Select to update", hint: "recommended" },
+        { value: "all", label: "Update all available" },
+        { value: "cancel", label: "Cancel" },
+      ],
     })
-    if (clack.isCancel(confirmAll) || !confirmAll) return "cancelled"
-  } else if (decision === "select") {
+    if (clack.isCancel(decision) || decision === "cancel") return "cancelled"
+
+    if (decision === "all") {
+      const confirmAll = await clack.confirm({
+        message:
+          `Update all ${updatesAvailable.length} skill${updatesAvailable.length === 1 ? "" : "s"}?\n` +
+          "This sync is destructive: local changes in imported skills will be overwritten.",
+        initialValue: false,
+      })
+      if (clack.isCancel(confirmAll) || !confirmAll) return "cancelled"
+      selectedReports = updatesAvailable
+      continue
+    }
+
     const chosen = await selectReportsToUpdate(updatesAvailable)
     if (chosen === undefined) return "cancelled"
+    if (chosen === "back") continue
     selectedReports = chosen
-    if (selectedReports.length === 0) return "cancelled"
   }
 
   const updateSpin = clack.spinner()
@@ -276,7 +311,7 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
     }
   }
 
-  updateSpin.stop("Update finished")
+  updateSpin.stop(failed > 0 ? "Completed with warnings" : "Completed")
   log.info(`Updated: ${updated}`)
   if (failed > 0) {
     log.warn(`Failed: ${failed}`)
