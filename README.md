@@ -10,7 +10,9 @@ Helps you import, update, and deploy AI agent skills.
 
 ### 🚀 Highlights
 - **Multiple IDE Support**: Deploy skills to IntelliJ (Codeium), Windsurf, Antigravity, Claude Code, Cursor, and Codex.
-- **TUI-Driven Interface**: Interactive terminal wizard for seamless management.
+- **Dual-Mode Architecture**: 
+  - **Interactive TUI**: A guided terminal wizard for seamless human management.
+  - **Headless CLI**: A deterministic command-line interface with strict JSON output, designed for power users, automation pipelines, and AI agents.
 - **GitHub Import & Update**: Import skills from GitHub URLs or `owner/repo`, then check/update later from GitHub upstream using local import metadata.
 - **User Config**: Register your custom skills repository by setting `ownSkillsDir` in `~/.skillctrl/config.json`.
 
@@ -58,10 +60,9 @@ npm link
 
 ---
 
-## 🎮 Usage
+## 🎮 Usage: Interactive Mode (TUI)
 
-### 🖥️ Interactive Menu (TUI)
-The easiest way to manage your skills is via the guided wizard:
+The easiest way to manage your skills is via the guided terminal wizard. Simply run the tool without arguments:
 
 ```bash
 # Global command (if linked)
@@ -71,13 +72,46 @@ skillctrl
 npm start
 ```
 
-### ❓ Command Help
+---
 
+## ⚡ Usage: Headless CLI (Advanced Users & Automation)
+
+For advanced users, CI/CD scripts, or AI agents, `skillctrl` provides a deterministic, headless CLI. 
+
+All commands support the `--json` global flag. When enabled, `stdout` is guaranteed to be exclusively parseable JSON.
+
+### List Skills
+```bash
+skillctrl list
+```
+
+### Deploy Skills
+```bash
+# Deploy to global IDE paths
+skillctrl deploy global --skill tools/safe-bash-scripting --ide claude,cursor
+
+# Deploy to a specific project workspace
+skillctrl deploy project --skill development/writing-junit-tests --path /path/to/project --ide windsurf
+
+### Import from GitHub
+```bash
+# Import skipping confirmation prompts
+skillctrl import owner/repo --yes
+```
+
+### Update Imported Skills
+```bash
+skillctrl update <ref>
+```
+
+### Global Options
 ```bash
 skillctrl --help
 ```
 
-### 🔁 If you moved your local skills folder
+---
+
+## 🔁 Configuration
 
 If your own skills were moved to another path/repository, update `ownSkillsDir`:
 
@@ -90,7 +124,7 @@ skillctrl
 
 ## 📥 Import & Update from GitHub
 
-From the interactive menu:
+From the interactive menu or via the CLI:
 - **Import skill from GitHub**: accepts full GitHub URLs (`https://github.com/owner/repo`), short format (`github.com/owner/repo`), or owner/repo shorthand (`owner/repo`).
 - **Check & update imported skills**: checks imported skills listed in `~/.skillctrl/skill-imports.json` against their GitHub source.
 - **Delete skill(s)** opens the deletion submenu:

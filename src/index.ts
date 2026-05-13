@@ -4,6 +4,11 @@ import { Command } from "commander"
 import fs from "fs"
 import { EXIT_CODES } from "./core/exit-codes.ts"
 import { log } from "./ui/logger.ts"
+import { setJsonMode } from "./ui/output.ts"
+import { listCmd } from "./commands/list.cmd.ts"
+import { deployCmd } from "./commands/deploy.cmd.ts"
+import { importCmd } from "./commands/import.cmd.ts"
+import { updateCmd } from "./commands/update.cmd.ts"
 import "./env.ts"
 
 const program = new Command()
@@ -34,6 +39,14 @@ program
   .description("Manage and deploy AI agent skills")
   .version(resolveCliVersion())
   .showHelpAfterError("(run with --help for usage)")
+  .option("--json", "Output strictly in JSON format")
+  .hook("preAction", () => {
+    setJsonMode(!!program.opts().json)
+  })
+  .addCommand(listCmd)
+  .addCommand(deployCmd)
+  .addCommand(importCmd)
+  .addCommand(updateCmd)
   .addHelpText(
     "after",
     `
@@ -47,18 +60,25 @@ Examples:
 `
   )
 
-// === 1. TUI MODE ===
-// No arguments → launch interactive TUI menu directly
+// === ROUTER: TUI vs CLI ===
 if (process.argv.length <= 2) {
-  try {
-    const { runMenu } = await import("./menu/index.ts")
-    const exitCode = await runMenu()
-    process.exit(exitCode)
-  } catch (err) {
-    log.error(err instanceof Error ? err.message : String(err))
+  const isInteractive = !!process.stdin.isTTY && !!process.stdout.isTTY
+
+  if (isInteractive) {
+    try {
+      const { runMenu } = await import("./menu/index.ts")
+      const exitCode = await runMenu()
+      process.exit(exitCode)
+    } catch (err) {
+      log.error(err instanceof Error ? err.message : String(err))
+      process.exit(EXIT_CODES.ERROR)
+    }
+  } else {
+    // Non-interactive fallback
+    console.error("error: no command provided. Run with --help for usage.")
     process.exit(EXIT_CODES.ERROR)
   }
 }
 
-// Fallback to CLI parsing (help/version only)
+// CLI parsing
 program.parse(process.argv)
