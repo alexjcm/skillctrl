@@ -2,7 +2,7 @@ import path from "path"
 import { lstat } from "node:fs/promises"
 import { readFileSync } from "node:fs"
 import { exists } from "../system/fs.ts"
-import { IDE_PROJECT_PATHS } from "../config/ide-paths.ts"
+import { IDE_GIT_EXCLUDE_ENABLED, IDE_PROJECT_PATHS } from "../config/ide-paths.ts"
 import type { IdeTarget } from "../types.ts"
 
 function normalizeRule(rule: string): string {
@@ -15,6 +15,8 @@ export function suggestGitExcludeRulesForIdes(ides: readonly IdeTarget[]): strin
   const rules = new Set<string>()
 
   for (const ide of ides) {
+    if (!IDE_GIT_EXCLUDE_ENABLED[ide]) continue
+
     for (const relativePath of IDE_PROJECT_PATHS[ide]) {
       const normalized = relativePath.replace(/\\/g, "/")
       const topLevel = normalized.split("/").filter(Boolean)[0]

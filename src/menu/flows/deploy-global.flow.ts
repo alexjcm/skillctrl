@@ -1,7 +1,8 @@
 import * as clack from "@clack/prompts"
 import * as pc from "../../ui/ansi.ts"
 
-import { ALL_IDE_KEYS } from "../../core/config/ide-paths.ts"
+import { ALL_IDE_KEYS, IDE_BASE_DIRS } from "../../core/config/ide-paths.ts"
+import { exists } from "../../core/system/fs.ts"
 import { deploySkillGlobal, deployAllGlobal } from "../../core/deploy/service.ts"
 import { discoverSkills } from "../../core/skills/discovery.ts"
 import type { IdeTarget, Skill, DeployResult } from "../../core/types.ts"
@@ -43,6 +44,18 @@ async function selectDeployTargets(): Promise<IdeTarget[] | typeof FLOW_BACK | u
 }
 
 type GlobalScope = "all" | "selected"
+
+async function shouldCreateMissingCopilotHome(ides: readonly IdeTarget[]): Promise<boolean> {
+  if (!ides.includes("copilot")) return false
+  if (await exists(IDE_BASE_DIRS.copilot)) return false
+
+  const createMissing = await clack.confirm({
+    message: "Copilot home was not found. Create ~/.copilot/skills for this deploy?",
+    initialValue: true,
+  })
+
+  return !clack.isCancel(createMissing) && createMissing
+}
 
 export async function deployGlobalFlow(excludedRefs: string[]): Promise<FlowResult> {
   type Step = "targets" | "scope" | typeof FLOW_CONFIRM
@@ -137,18 +150,19 @@ export async function deployGlobalFlow(excludedRefs: string[]): Promise<FlowResu
     }
 
     try {
+      const allowCreateMissingCopilotHome = await shouldCreateMissingCopilotHome(selectedIdes)
       const results = await runWithSpinner({
         startMessage: selectedScope === "all"
           ? "Deploying all skills globally..."
           : `Deploying ${selectedSkills.length} selected skill${selectedSkills.length === 1 ? "" : "s"} globally...`,
       }, async () => {
         if (selectedScope === "all") {
-          return deployAllGlobal(selectedIdes, { excludedRefs })
+          return deployAllGlobal(selectedIdes, { excludedRefs }, { allowCreateMissingCopilotHome })
         }
 
         const nextResults: DeployResult[] = []
         for (const skill of selectedSkills) {
-          const skillResults = await deploySkillGlobal(skill, selectedIdes)
+          const skillResults = await deploySkillGlobal(skill, selectedIdes, { allowCreateMissingCopilotHome })
           nextResults.push(...skillResults)
         }
         return nextResults

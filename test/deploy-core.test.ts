@@ -94,6 +94,31 @@ describe("deploySkillToProject", () => {
     expect(await exists(target)).toBe(true)
   })
 
+  it("copies one skill to Copilot native project path", async () => {
+    const tmp = await mkTmp("skills-deploy-project-copilot-")
+    const skillDir = path.join(tmp, "skill-source")
+    const projectDir = path.join(tmp, "project")
+
+    await mkdir(skillDir, { recursive: true })
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
+
+    const skill: Skill = {
+      ref: "development/sample-skill",
+      name: "sample-skill",
+      category: "development",
+      path: skillDir,
+      description: "Sample",
+    }
+
+    const results = await deploySkillToProject(skill, ["copilot"], projectDir)
+    expect(results.every((r) => r.status === "copied")).toBe(true)
+    expect(results).toHaveLength(1)
+
+    const target = path.join(projectDir, ".github", "skills", "sample-skill", "SKILL.md")
+    expect(await exists(target)).toBe(true)
+  })
+
   it("replaces existing deployed folder content", async () => {
     const tmp = await mkTmp("skills-deploy-project-replace-")
     const skillDir = path.join(tmp, "skill-source")

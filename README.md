@@ -9,7 +9,7 @@ Helps you import, update, and deploy AI agent skills.
 ---
 
 ### 🚀 Highlights
-- **Multiple IDE Support**: Deploy skills to IntelliJ (Codeium), Windsurf, Antigravity, Claude Code, Cursor, and Codex.
+- **Multiple IDE Support**: Deploy skills to Codex, GitHub Copilot, IntelliJ (Codeium), Windsurf, Antigravity, Claude Code, and Cursor.
 - **Dual-Mode Architecture**: 
   - **Interactive TUI**: A guided terminal wizard for seamless human management.
   - **Headless CLI**: A deterministic command-line interface with strict JSON output, designed for power users, automation pipelines, and AI agents.

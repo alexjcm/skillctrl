@@ -16,9 +16,11 @@ async function mkTmp(prefix: string): Promise<string> {
 describe("suggestGitExcludeRulesForIdes", () => {
   it("returns rules derived from selected IDE project paths", () => {
     expect(suggestGitExcludeRulesForIdes(["codex"])).toEqual([".agents/"])
+    expect(suggestGitExcludeRulesForIdes(["copilot"])).toEqual([])
     expect(suggestGitExcludeRulesForIdes(["cursor"])).toEqual([".agents/", ".cursor/"])
     expect(suggestGitExcludeRulesForIdes(["junie"])).toEqual([".junie/"])
     expect(suggestGitExcludeRulesForIdes(["opencode"])).toEqual([".agents/", ".claude/", ".opencode/"])
+    expect(suggestGitExcludeRulesForIdes(["copilot", "cursor"])).toEqual([".agents/", ".cursor/"])
   })
 })
 

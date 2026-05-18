@@ -4,7 +4,7 @@ import { IDE_GLOBAL_PATHS, IDE_PROJECT_PATHS, IDE_BASE_DIRS } from "../config/id
 import { exists } from "../system/fs.ts"
 import { safeRm, safeRmProject } from "../system/safe-rm.ts"
 import { discoverSkills, isExcluded } from "../skills/discovery.ts"
-import type { IdeTarget, Skill, DeployOptions, DeployResult } from "../types.ts"
+import type { IdeTarget, Skill, DeployOptions, DeployResult, DeployRuntimeOptions } from "../types.ts"
 
 // ============================================================================
 // HELPERS
@@ -42,7 +42,8 @@ async function copySkillTo(
 
 export async function deploySkillGlobal(
   skill: Skill,
-  ides: IdeTarget[]
+  ides: IdeTarget[],
+  runtimeOptions: DeployRuntimeOptions = {}
 ): Promise<DeployResult[]> {
   const results: DeployResult[] = []
 
@@ -51,11 +52,16 @@ export async function deploySkillGlobal(
     const baseDir = IDE_BASE_DIRS[ide]
 
     if (!(await exists(baseDir))) {
+      if (ide === "copilot" && runtimeOptions.allowCreateMissingCopilotHome) {
+        // Continue and let mkdir() create ~/.copilot/skills on demand.
+      } else {
       // IDE not installed — skip silently (result captured as "skipped")
-      for (const targetDir of targetDirs) {
-        results.push({ skill, ide, targetPath: targetDir, status: "skipped", reason: "IDE not installed" })
+        const reason = ide === "copilot" ? "Copilot home not found" : "IDE not installed"
+        for (const targetDir of targetDirs) {
+          results.push({ skill, ide, targetPath: targetDir, status: "skipped", reason })
+        }
+        continue
       }
-      continue
     }
 
     // allowedPrefixes for safeRm = all global paths of this IDE
@@ -112,14 +118,15 @@ export async function deploySkillToProject(
 
 export async function deployAllGlobal(
   ides: IdeTarget[],
-  options: DeployOptions
+  options: DeployOptions,
+  runtimeOptions: DeployRuntimeOptions = {}
 ): Promise<DeployResult[]> {
   const skills = await discoverSkills()
   const results: DeployResult[] = []
 
   for (const skill of skills) {
     if (isExcluded(skill.ref, options.excludedRefs)) continue
-    const skillResults = await deploySkillGlobal(skill, ides)
+    const skillResults = await deploySkillGlobal(skill, ides, runtimeOptions)
     results.push(...skillResults)
   }
 

@@ -34,6 +34,11 @@ export interface DeployOptions {
   excludedRefs: string[]
 }
 
+export interface DeployRuntimeOptions {
+  /** Allow creating Copilot's native user skills directory when ~/.copilot does not exist yet. */
+  allowCreateMissingCopilotHome?: boolean
+}
+
 // ============================================================================
 // DEPLOY RESULT (returned by core functions, UI decides how to display)
 // ============================================================================

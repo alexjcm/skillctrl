@@ -83,8 +83,8 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowR
       const scopeResult = await clack.select({
         message: "Which skills to deploy?",
         options: [
-          { value: FLOW_ALL, label: "All skills (excluding excluded)" },
           { value: "select", label: "Select specific skills" },
+          { value: FLOW_ALL, label: "All skills (excluding excluded)" },
           { value: FLOW_BACK, label: pc.dim("← Back") },
         ],
       })
