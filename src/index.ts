@@ -2,6 +2,7 @@
 
 import { Command } from "commander"
 import fs from "fs"
+import { existsSync } from "node:fs"
 import { EXIT_CODES } from "./core/exit-codes.ts"
 import { log } from "./ui/logger.ts"
 import { setJsonMode } from "./ui/output.ts"
@@ -12,6 +13,15 @@ import { updateCmd } from "./commands/update.cmd.ts"
 import "./env.ts"
 
 const program = new Command()
+
+function isRunningFromNpmLink(baseUrl: string): boolean {
+  return [
+    "../src/index.ts",
+    "../tsconfig.json",
+  ].some((relativePath) => existsSync(new URL(relativePath, baseUrl)))
+}
+
+const linkedWorkspaceInstall = isRunningFromNpmLink(import.meta.url)
 
 function resolveCliVersion(): string {
   try {
@@ -67,7 +77,7 @@ if (process.argv.length <= 2) {
   if (isInteractive) {
     try {
       const { runMenu } = await import("./menu/index.ts")
-      const exitCode = await runMenu()
+      const exitCode = await runMenu({ linkedWorkspaceInstall })
       process.exit(exitCode)
     } catch (err) {
       log.error(err instanceof Error ? err.message : String(err))

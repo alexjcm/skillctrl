@@ -19,8 +19,16 @@ import { FLOW_CANCELLED, FLOW_COMPLETED } from "./constants/flow-tokens.ts"
 // MAIN MENU
 // ============================================================================
 
-export async function runMenu(): Promise<number> {
-  clack.intro(pc.bold(pc.cyan("✦ skillctrl")))
+export interface RunMenuOptions {
+  linkedWorkspaceInstall?: boolean
+}
+
+export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
+  const linkedWorkspaceBadge = options.linkedWorkspaceInstall
+    ? ` ${pc.dim("(running from linked workspace)")}`
+    : ""
+
+  clack.intro(pc.bold(pc.cyan(`✦ skillctrl${linkedWorkspaceBadge}`)))
 
   // First-run / migration notice is handled inside loadExcludedRefs (skills-config.ts).
   // After that call, ~/.skillctrl/config.json is guaranteed to exist.
