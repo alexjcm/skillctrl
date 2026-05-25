@@ -30,7 +30,6 @@
   ],
   "scripts": {
     "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts",
     "build": "tsup src/index.ts --format esm --target node22 --clean --minify --dts",
     "lint": "tsc --noEmit",
     "test": "vitest run",
