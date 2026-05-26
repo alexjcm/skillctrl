@@ -10,6 +10,14 @@ import { FLOW_BACK } from "../constants/flow-tokens.ts"
  * Used in the "Deploy to project" flow.
  * isCancel checked after every prompt.
  */
+export function multiSelectSkills(
+  category: string | undefined,
+  includeBack: true
+): Promise<Skill[] | typeof FLOW_BACK | undefined>
+export function multiSelectSkills(
+  category?: string,
+  includeBack?: false
+): Promise<Skill[] | undefined>
 export async function multiSelectSkills(
   category?: string,
   includeBack = false

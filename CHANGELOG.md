@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-05-26
+### Added
+- Added global installations inventory for CLI and TUI, including `skillctrl list --global` JSON output and a dedicated TUI view for installed global skill folders.
+
+### Changed
+- Simplified TUI deploy and delete flows to remove redundant intermediate menus and reduce navigation steps.
+- Updated global installations inventory to report physical installation scopes, including shared `~/.agents/skills`, instead of attributing shared paths to a single IDE.
+
+### Removed
+- Removed `All IDEs` and `All skills` shortcuts from the affected TUI deploy/delete flows in favor of explicit selections.
+
 ## [1.4.0] - 2026-05-13
 ### Added
 - Added dual-mode TUI/CLI architecture, allowing programmatic access to skillctrl via a Headless CLI without breaking the interactive menu.

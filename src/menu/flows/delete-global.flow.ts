@@ -63,25 +63,8 @@ function renderGlobalRemovalResults(results: RemovalResult[]): FlowResult {
   return errored.length > 0 ? FLOW_CANCELLED : FLOW_COMPLETED
 }
 
-async function selectGlobalTargets(): Promise<IdeTarget[] | typeof FLOW_BACK | undefined> {
-  while (true) {
-    const mode = await clack.select({
-      message: "Delete globally installed skills from:",
-      options: [
-        { value: FLOW_ALL, label: "All IDEs" },
-        { value: "select", label: "Select IDE(s)" },
-        { value: FLOW_BACK, label: pc.dim("← Back") },
-      ],
-    })
-
-    if (clack.isCancel(mode)) return undefined
-    if (mode === FLOW_BACK) return FLOW_BACK
-    if (mode === FLOW_ALL) return [...ALL_IDE_KEYS]
-
-    const selectedIdes = await selectIdes(true)
-    if (selectedIdes === FLOW_BACK) continue
-    return selectedIdes
-  }
+async function selectGlobalTargets(): Promise<IdeTarget[] | undefined> {
+  return selectIdes(false)
 }
 
 async function selectGlobalSkillNames(
@@ -134,7 +117,6 @@ async function selectGlobalSkillNames(
 export async function deleteGlobalFlow(): Promise<FlowResult> {
   const selectedIdes = await selectGlobalTargets()
   if (!selectedIdes) return FLOW_CANCELLED
-  if (selectedIdes === FLOW_BACK) return FLOW_BACK
 
   const candidates = await listKnownGlobalRemovalCandidates()
   if (candidates.length === 0) {

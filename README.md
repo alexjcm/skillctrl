@@ -83,6 +83,9 @@ All commands support the `--json` global flag. When enabled, `stdout` is guarant
 ### List Skills
 ```bash
 skillctrl list
+
+# View global installations across all supported IDEs
+skillctrl list --global
 ```
 
 ### Deploy Skills

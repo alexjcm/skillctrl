@@ -2,6 +2,7 @@ import { Command } from "commander"
 import { fetchSkillCandidatePreviewsFromInput, hydrateSkillCandidate } from "../core/imports/github/index.ts"
 import { downloadAndSyncImportedSkill, buildImportedTargetRef } from "../core/imports/sync.ts"
 import { validateSkillContent } from "../core/skills/validator.ts"
+import { toErrorMessage } from "../core/system/errors.ts"
 import { isJsonMode, printJson } from "../ui/output.ts"
 import { log } from "../ui/logger.ts"
 import * as pc from "../ui/ansi.ts"
@@ -88,8 +89,8 @@ export const importCmd = new Command("import")
             files: fileCount,
             ...(warning ? { warning } : {}),
           })
-        } catch (err: any) {
-          failed.push({ name: preview.name, error: err.message || String(err) })
+        } catch (err: unknown) {
+          failed.push({ name: preview.name, error: toErrorMessage(err) })
         }
       }
 
@@ -118,9 +119,9 @@ export const importCmd = new Command("import")
 
       if (imported.length === 0 && failed.length > 0) return process.exit(1)
       return process.exit(0)
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isJsonMode) {
-        printJson({ error: err.message || String(err) })
+        printJson({ error: toErrorMessage(err) })
       } else {
         log.error("Failed to import", err)
       }

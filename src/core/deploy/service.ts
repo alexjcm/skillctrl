@@ -3,8 +3,7 @@ import { cp, mkdir } from "node:fs/promises"
 import { IDE_GLOBAL_PATHS, IDE_PROJECT_PATHS, IDE_BASE_DIRS } from "../config/ide-paths.ts"
 import { exists } from "../system/fs.ts"
 import { safeRm, safeRmProject } from "../system/safe-rm.ts"
-import { discoverSkills, isExcluded } from "../skills/discovery.ts"
-import type { IdeTarget, Skill, DeployOptions, DeployResult, DeployRuntimeOptions } from "../types.ts"
+import type { IdeTarget, Skill, DeployResult, DeployRuntimeOptions } from "../types.ts"
 
 // ============================================================================
 // HELPERS
@@ -107,27 +106,6 @@ export async function deploySkillToProject(
       )
       results.push(result)
     }
-  }
-
-  return results
-}
-
-// ============================================================================
-// DEPLOY ALL — global
-// ============================================================================
-
-export async function deployAllGlobal(
-  ides: IdeTarget[],
-  options: DeployOptions,
-  runtimeOptions: DeployRuntimeOptions = {}
-): Promise<DeployResult[]> {
-  const skills = await discoverSkills()
-  const results: DeployResult[] = []
-
-  for (const skill of skills) {
-    if (isExcluded(skill.ref, options.excludedRefs)) continue
-    const skillResults = await deploySkillGlobal(skill, ides, runtimeOptions)
-    results.push(...skillResults)
   }
 
   return results

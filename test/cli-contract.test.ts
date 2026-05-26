@@ -4,11 +4,13 @@ import { deployCmd } from "../src/commands/deploy.cmd.ts"
 import { importCmd } from "../src/commands/import.cmd.ts"
 import * as output from "../src/ui/output.ts"
 import * as discovery from "../src/core/skills/discovery.ts"
+import * as installations from "../src/core/installations/global.ts"
 import * as deployService from "../src/core/deploy/service.ts"
 import * as github from "../src/core/imports/github/index.ts"
 import * as sync from "../src/core/imports/sync.ts"
 
 vi.mock("../src/core/skills/discovery.ts")
+vi.mock("../src/core/installations/global.ts")
 vi.mock("../src/core/deploy/service.ts")
 vi.mock("../src/core/imports/github/index.ts")
 vi.mock("../src/core/imports/sync.ts")
@@ -51,6 +53,23 @@ describe("CLI JSON Contracts", () => {
     expect(printJsonSpy).toHaveBeenCalledWith({
       skills: [
         { ref: "cat/skill-name", name: "skill-name", category: "cat", source: "own" }
+      ]
+    })
+  })
+
+  it("list --global --json contract", async () => {
+    vi.mocked(installations.listGlobalInstallations).mockResolvedValue([
+      { scope: "agents", targetDir: "/targets/agents/skills", deployName: "alpha-skill" },
+      { scope: "claude", targetDir: "/targets/claude/skills", deployName: "beta-skill" },
+    ])
+
+    await listCmd.parseAsync(["node", "test", "--global"])
+    expect(exitCodeReceived).toBe(0)
+
+    expect(printJsonSpy).toHaveBeenCalledWith({
+      installations: [
+        { scope: "agents", targetDir: "/targets/agents/skills", deployName: "alpha-skill" },
+        { scope: "claude", targetDir: "/targets/claude/skills", deployName: "beta-skill" },
       ]
     })
   })

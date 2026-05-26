@@ -26,12 +26,15 @@ export interface Skill {
 }
 
 // ============================================================================
-// DEPLOY OPTIONS
+// GLOBAL INSTALLATIONS
 // ============================================================================
 
-export interface DeployOptions {
-  /** Skill refs to skip (loaded from skills.config.json) */
-  excludedRefs: string[]
+export type GlobalInstallationScope = IdeTarget | "agents"
+
+export interface GlobalInstallation {
+  scope: GlobalInstallationScope
+  targetDir: string
+  deployName: string
 }
 
 export interface DeployRuntimeOptions {

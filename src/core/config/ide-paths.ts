@@ -69,3 +69,15 @@ export const IDE_GIT_EXCLUDE_ENABLED = {
   cursor:      true,
   opencode:    true,
 } as const satisfies Record<typeof ALL_IDE_KEYS[number], boolean>
+
+export const GLOBAL_INSTALLATION_TARGETS = [
+  { scope: "agents",       baseDir: path.join(env.HOME, ".agents"),                targetDir: path.join(env.HOME, ".agents", "skills") },
+  { scope: "copilot",      baseDir: path.join(env.HOME, ".copilot"),               targetDir: path.join(env.HOME, ".copilot", "skills") },
+  { scope: "intellij",     baseDir: path.join(env.HOME, ".codeium"),               targetDir: path.join(env.HOME, ".codeium", "skills") },
+  { scope: "windsurf",     baseDir: path.join(env.HOME, ".codeium"),               targetDir: path.join(env.HOME, ".codeium", "windsurf", "skills") },
+  { scope: "junie",        baseDir: path.join(env.HOME, ".junie"),                 targetDir: path.join(env.HOME, ".junie", "skills") },
+  { scope: "antigravity",  baseDir: path.join(env.HOME, ".gemini", "antigravity"), targetDir: path.join(env.HOME, ".gemini", "antigravity", "skills") },
+  { scope: "claude",       baseDir: path.join(env.HOME, ".claude"),                targetDir: path.join(env.HOME, ".claude", "skills") },
+  { scope: "cursor",       baseDir: path.join(env.HOME, ".cursor"),                targetDir: path.join(env.HOME, ".cursor", "skills") },
+  { scope: "opencode",     baseDir: path.join(env.HOME, ".config", "opencode"),    targetDir: path.join(env.HOME, ".config", "opencode", "skills") },
+] as const

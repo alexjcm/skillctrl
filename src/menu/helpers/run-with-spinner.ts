@@ -2,10 +2,10 @@ import * as clack from "@clack/prompts"
 
 type MessageResolver<T> = string | ((value: T) => string) | undefined
 
-interface RunWithSpinnerOptions<T> {
+interface RunWithSpinnerOptions<T, E = unknown> {
   startMessage: string
   successMessage?: MessageResolver<T>
-  failureMessage?: MessageResolver<unknown>
+  failureMessage?: MessageResolver<E>
 }
 
 function resolveMessage<T>(message: MessageResolver<T>, value: T, fallback: string): string {

@@ -6,6 +6,7 @@ import { deployGlobalFlow } from "./flows/deploy-global.flow.ts"
 import { deployToProjectFlow } from "./flows/deploy-project.flow.ts"
 import { doctorFlow } from "./flows/doctor.flow.ts"
 import { listFlow } from "./flows/list.flow.ts"
+import { listGlobalFlow } from "./flows/list-global.flow.ts"
 import { configFlow } from "./flows/config.flow.ts"
 import { importSkillFlow } from "./flows/import-skill.flow.ts"
 import { checkUpdatesFlow } from "./flows/check-updates.flow.ts"
@@ -32,7 +33,7 @@ export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
 
   // First-run / migration notice is handled inside loadExcludedRefs (skills-config.ts).
   // After that call, ~/.skillctrl/config.json is guaranteed to exist.
-  const excludedRefs = loadExcludedRefs()
+  loadExcludedRefs()
 
   // Informational hint when no own skills dir is configured
   const skillsDir = getSkillSourceDir()
@@ -48,6 +49,7 @@ export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
     | "check-updates"
     | "settings"
     | "list"
+    | "list-global"
     | "deploy-project"
     | "deploy-global"
     | "delete"
@@ -62,7 +64,8 @@ export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
         { value: "import-skill",       label: "Import skill from GitHub",                 hint: "→ URL or owner/repo" },
         { value: "check-updates",      label: "Check & update imported skills",           hint: "→ imported skills" },
         { value: "settings",           label: "Own Skills Dir",                           hint: "→ set own skills path" },
-        { value: "list",               label: "List available skills" },
+        { value: "list",               label: "List available skill catalog" },
+        { value: "list-global",        label: "View global installations" },
         { value: "deploy-project",     label: "Deploy skills to project/workspace",       hint: "→ project/workspace" },
         { value: "deploy-global",      label: "Deploy skills globally",                   hint: "→ one or more skills (global)" },
         { value: "delete",             label: "Delete skill(s)",                          hint: "→ imported or global" },
@@ -82,16 +85,20 @@ export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
 
     switch (action) {
       case "deploy-global":
-        result = await deployGlobalFlow(excludedRefs)
+        result = await deployGlobalFlow()
         break
       case "deploy-project":
-        result = await deployToProjectFlow(excludedRefs)
+        result = await deployToProjectFlow()
         break
       case "doctor":
         result = await doctorFlow()
         break
       case "list":
         await listFlow()
+        result = FLOW_COMPLETED
+        break
+      case "list-global":
+        await listGlobalFlow()
         result = FLOW_COMPLETED
         break
       case "settings":

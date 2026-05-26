@@ -2,6 +2,7 @@ import path from "path"
 import fg from "fast-glob"
 import { readdir, readFile } from "node:fs/promises"
 import { exists, existsSync } from "../system/fs.ts"
+import { isErrnoException } from "../system/errors.ts"
 import { getSkillSourceDir } from "../config/ide-paths.ts"
 import { IMPORTED_DIR } from "../config/user-config.ts"
 import type { Skill } from "../types.ts"
@@ -32,8 +33,8 @@ export async function discoverCategories(): Promise<string[]> {
             allCategories.add(e.name)
           }
         })
-    } catch (err: any) {
-      if (err.code !== "ENOENT") throw err
+    } catch (err: unknown) {
+      if (!isErrnoException(err) || err.code !== "ENOENT") throw err
     }
   }
   return [...allCategories].sort()
@@ -68,9 +69,9 @@ async function parseSkillDescription(skillMdPath: string): Promise<string | unde
       }
       return line.length > 80 ? line.slice(0, 77) + "..." : line
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Non-fatal — description is optional
-    if (err.code !== "ENOENT") {
+    if (!isErrnoException(err) || err.code !== "ENOENT") {
       // swallow silently
     }
   }
@@ -173,12 +174,4 @@ export async function discoverSkills(categories?: string[]): Promise<Skill[]> {
   })
 
   return skills
-}
-
-// ============================================================================
-// IS EXCLUDED
-// ============================================================================
-
-export function isExcluded(skillRef: string, excludedRefs: string[]): boolean {
-  return excludedRefs.includes(skillRef)
 }

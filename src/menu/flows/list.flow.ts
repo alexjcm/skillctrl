@@ -3,7 +3,7 @@ import { log } from "../../ui/logger.ts"
 import * as pc from "../../ui/ansi.ts"
 
 // ============================================================================
-// FLOW: List skills
+// FLOW: List skill catalog
 // ============================================================================
 
 export async function listFlow(): Promise<void> {
@@ -13,7 +13,7 @@ export async function listFlow(): Promise<void> {
   const importedCount = skills.filter((s) => s.source === "imported").length
 
   if (skills.length === 0) {
-    log.step("No skills available.")
+    log.step("No skill catalog entries available.")
     log.raw(`  ${pc.dim("Set your Own Skills Dir or import from GitHub.")}`)
     return
   }
@@ -26,7 +26,7 @@ export async function listFlow(): Promise<void> {
   }
 
   log.step(
-    `${skills.length} skills (${ownCount} own, ${importedCount} imported) in ${categories.length} categories:`
+    `Skill catalog: ${skills.length} entries (${ownCount} own, ${importedCount} imported) in ${categories.length} categories`
   )
 
   for (const [category, categorySkills] of byCategory) {

@@ -3,7 +3,6 @@ import * as clack from "@clack/prompts"
 import * as pc from "../../ui/ansi.ts"
 
 import { exists } from "../../core/system/fs.ts"
-import { ALL_IDE_KEYS } from "../../core/config/ide-paths.ts"
 import { deploySkillToProject } from "../../core/deploy/service.ts"
 import type { IdeTarget, DeployResult, Skill } from "../../core/types.ts"
 import type { FlowResult } from "../flow-result.ts"
@@ -13,7 +12,7 @@ import { log } from "../../ui/logger.ts"
 import { renderDeployResults } from "../helpers/render-deploy-results.ts"
 import { maybeUpdateProjectGitExclude } from "../helpers/project-git-exclude.ts"
 import { runWithSpinner } from "../helpers/run-with-spinner.ts"
-import { FLOW_ALL, FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_CONFIRM } from "../constants/flow-tokens.ts"
+import { FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_CONFIRM } from "../constants/flow-tokens.ts"
 
 // ============================================================================
 // FLOW: Deploy to project directory
@@ -21,15 +20,15 @@ import { FLOW_ALL, FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_
 // isCancel on every prompt
 // ============================================================================
 
-export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowResult> {
-  type Step = "path" | "ide" | "scope" | typeof FLOW_CONFIRM
+export async function deployToProjectFlow(): Promise<FlowResult> {
+  type Step = "path" | "ide" | "skills" | typeof FLOW_CONFIRM
 
   const isGitRepo = await exists(path.join(process.cwd(), ".git"))
   const isNpmProject = await exists(path.join(process.cwd(), "package.json"))
 
   let step: Step = "path"
   let projectDir: string | null = null
-  let ide: IdeTarget | typeof FLOW_ALL | null = null
+  let ide: IdeTarget | null = null
   let ides: IdeTarget[] = []
   let skills: Skill[] | null = null
 
@@ -66,7 +65,7 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowR
     }
 
     if (step === "ide") {
-      const selectedIde = await selectIde(true, true)
+      const selectedIde = await selectIde(true)
       if (!selectedIde) return FLOW_CANCELLED
       if (selectedIde === FLOW_BACK) {
         step = "path"
@@ -74,36 +73,16 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowR
       }
 
       ide = selectedIde
-      ides = ide === FLOW_ALL ? [...ALL_IDE_KEYS] : [ide]
-      step = "scope"
+      ides = [ide]
+      step = "skills"
       continue
     }
 
-    if (step === "scope") {
-      const scopeResult = await clack.select({
-        message: "Which skills to deploy?",
-        options: [
-          { value: "select", label: "Select specific skills" },
-          { value: FLOW_ALL, label: "All skills (excluding excluded)" },
-          { value: FLOW_BACK, label: pc.dim("← Back") },
-        ],
-      })
-      if (clack.isCancel(scopeResult)) return FLOW_CANCELLED
-      if (scopeResult === FLOW_BACK) {
-        step = "ide"
-        continue
-      }
+    if (step === "skills") {
+      const selectedSkills = await multiSelectSkills(undefined, false)
+      if (!selectedSkills) return FLOW_CANCELLED
 
-      if (scopeResult === FLOW_ALL) {
-        const { discoverSkills, isExcluded } = await import("../../core/skills/discovery.ts")
-        const all = await discoverSkills()
-        skills = all.filter((s) => !isExcluded(s.ref, excludedRefs))
-      } else {
-        const selectedSkills = await multiSelectSkills(undefined, true)
-        if (!selectedSkills) return FLOW_CANCELLED
-        if (selectedSkills === FLOW_BACK) continue
-        skills = selectedSkills
-      }
+      skills = selectedSkills
 
       if (!skills || skills.length === 0) {
         log.warn("No skills selected.")
@@ -124,7 +103,7 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowR
 
     log.step("Summary:")
     log.bullet("Destination", targetProjectDir)
-    log.bullet("IDEs", ide === FLOW_ALL ? `all (${ALL_IDE_KEYS.join(", ")})` : ide)
+    log.bullet("IDEs", ide)
     log.bullet("Skills", String(skillsToDeploy.length))
 
     log.step("Skills to deploy:")
@@ -142,7 +121,7 @@ export async function deployToProjectFlow(excludedRefs: string[]): Promise<FlowR
     })
     if (clack.isCancel(decision) || decision === FLOW_CANCEL) return FLOW_CANCELLED
     if (decision === FLOW_BACK) {
-      step = "scope"
+      step = "skills"
       continue
     }
 

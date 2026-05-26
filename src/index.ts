@@ -4,6 +4,7 @@ import { Command } from "commander"
 import fs from "fs"
 import { existsSync } from "node:fs"
 import { EXIT_CODES } from "./core/exit-codes.ts"
+import { isRecord } from "./core/system/errors.ts"
 import { log } from "./ui/logger.ts"
 import { setJsonMode } from "./ui/output.ts"
 import { listCmd } from "./commands/list.cmd.ts"
@@ -27,9 +28,12 @@ function resolveCliVersion(): string {
   try {
     const packageJsonPath = new URL("../package.json", import.meta.url)
     const raw = fs.readFileSync(packageJsonPath, "utf8")
-    const parsed = JSON.parse(raw) as { version?: unknown }
-    return typeof parsed.version === "string" && parsed.version.trim()
-      ? parsed.version
+    const parsed = JSON.parse(raw) as unknown
+    if (!isRecord(parsed)) return "0.0.0"
+
+    const version = parsed["version"]
+    return typeof version === "string" && version.trim()
+      ? version
       : "0.0.0"
   } catch {
     return "0.0.0"

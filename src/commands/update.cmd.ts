@@ -1,6 +1,7 @@
 import { Command } from "commander"
 import { buildUpdateReport, syncImportedSkillFromReport } from "../core/imports/updates.ts"
 import { getEntry } from "../core/imports/registry.ts"
+import { toErrorMessage } from "../core/system/errors.ts"
 import { isJsonMode, printJson } from "../ui/output.ts"
 import { log } from "../ui/logger.ts"
 import * as pc from "../ui/ansi.ts"
@@ -83,9 +84,9 @@ export const updateCmd = new Command("update")
 
       if (summary.notFound === refs.length) return process.exit(1)
       return process.exit(0)
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (isJsonMode) {
-        printJson({ error: err.message || String(err) })
+        printJson({ error: toErrorMessage(err) })
       } else {
         log.error("Failed to update", err)
       }
