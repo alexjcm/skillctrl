@@ -34,6 +34,7 @@ import type { Skill } from "../src/core/types.ts"
 async function mkSkillSource(): Promise<Skill> {
   const skillRoot = await mkdtemp(path.join(tmpdir(), "skillctrl-copilot-skill-"))
   await writeFile(path.join(skillRoot, "SKILL.md"), "# Sample skill")
+  await writeFile(path.join(skillRoot, "trigger_evals.json"), "{\"generated\":true}")
 
   return {
     ref: "development/sample-skill",
@@ -71,5 +72,6 @@ describe("deploySkillGlobal for copilot", () => {
     expect(results).toHaveLength(1)
     expect(results[0]?.status).toBe("copied")
     expect(await exists(path.join(paths.copilotSkills, "sample-skill", "SKILL.md"))).toBe(true)
+    expect(await exists(path.join(paths.copilotSkills, "sample-skill", "trigger_evals.json"))).toBe(false)
   })
 })

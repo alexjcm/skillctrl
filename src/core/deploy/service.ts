@@ -9,6 +9,14 @@ import type { IdeTarget, Skill, DeployResult, DeployRuntimeOptions } from "../ty
 // HELPERS
 // ============================================================================
 
+const DEPLOY_EXCLUDED_BASENAMES = new Set([
+  "trigger_evals.json",
+])
+
+function shouldCopyDeployPath(sourcePath: string): boolean {
+  return !DEPLOY_EXCLUDED_BASENAMES.has(path.basename(sourcePath))
+}
+
 /**
  * Copies a skill folder to a single target directory.
  * Returns a DeployResult — never throws, errors are captured in the result.
@@ -21,12 +29,14 @@ async function copySkillTo(
 ): Promise<DeployResult> {
   const skillDest = path.join(targetDir, skill.name)
 
-
-
   try {
     await mkdir(targetDir, { recursive: true })
     await remover(skillDest)
-    await cp(skill.path, skillDest, { recursive: true, force: true })
+    await cp(skill.path, skillDest, {
+      recursive: true,
+      force: true,
+      filter: shouldCopyDeployPath,
+    })
     return { skill, ide, targetPath: skillDest, status: "copied" }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

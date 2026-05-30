@@ -10,6 +10,17 @@ async function mkTmp(prefix: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), prefix))
 }
 
+function buildSkill(skillDir: string): Skill {
+  return {
+    ref: "development/sample-skill",
+    name: "sample-skill",
+    category: "development",
+    path: skillDir,
+    description: "Sample",
+    source: "own",
+  }
+}
+
 describe("deploySkillToProject", () => {
   it("copies one skill to all configured project targets for cursor", async () => {
     const tmp = await mkTmp("skills-deploy-project-")
@@ -21,15 +32,7 @@ describe("deploySkillToProject", () => {
     await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
     await writeFile(path.join(skillDir, "notes.txt"), "content")
 
-    const skill: Skill = {
-      ref: "development/sample-skill",
-      name: "sample-skill",
-      category: "development",
-      path: skillDir,
-      description: "Sample",
-    }
-
-    const results = await deploySkillToProject(skill, ["cursor"], projectDir)
+    const results = await deploySkillToProject(buildSkill(skillDir), ["cursor"], projectDir)
     expect(results.every((r) => r.status === "copied")).toBe(true)
     expect(results).toHaveLength(2)
 
@@ -49,15 +52,7 @@ describe("deploySkillToProject", () => {
     await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
     await writeFile(path.join(skillDir, "notes.txt"), "content")
 
-    const skill: Skill = {
-      ref: "development/sample-skill",
-      name: "sample-skill",
-      category: "development",
-      path: skillDir,
-      description: "Sample",
-    }
-
-    const results = await deploySkillToProject(skill, ["opencode"], projectDir)
+    const results = await deploySkillToProject(buildSkill(skillDir), ["opencode"], projectDir)
     expect(results.every((r) => r.status === "copied")).toBe(true)
     expect(results).toHaveLength(3)
 
@@ -78,15 +73,7 @@ describe("deploySkillToProject", () => {
     await mkdir(projectDir, { recursive: true })
     await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
 
-    const skill: Skill = {
-      ref: "development/sample-skill",
-      name: "sample-skill",
-      category: "development",
-      path: skillDir,
-      description: "Sample",
-    }
-
-    const results = await deploySkillToProject(skill, ["junie"], projectDir)
+    const results = await deploySkillToProject(buildSkill(skillDir), ["junie"], projectDir)
     expect(results.every((r) => r.status === "copied")).toBe(true)
     expect(results).toHaveLength(1)
 
@@ -103,15 +90,7 @@ describe("deploySkillToProject", () => {
     await mkdir(projectDir, { recursive: true })
     await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
 
-    const skill: Skill = {
-      ref: "development/sample-skill",
-      name: "sample-skill",
-      category: "development",
-      path: skillDir,
-      description: "Sample",
-    }
-
-    const results = await deploySkillToProject(skill, ["copilot"], projectDir)
+    const results = await deploySkillToProject(buildSkill(skillDir), ["copilot"], projectDir)
     expect(results.every((r) => r.status === "copied")).toBe(true)
     expect(results).toHaveLength(1)
 
@@ -130,19 +109,33 @@ describe("deploySkillToProject", () => {
     await writeFile(path.join(existingTarget, "old.txt"), "old")
     await writeFile(path.join(skillDir, "SKILL.md"), "# New skill")
 
-    const skill: Skill = {
-      ref: "development/sample-skill",
-      name: "sample-skill",
-      category: "development",
-      path: skillDir,
-      description: "Sample",
-    }
-
-    const results = await deploySkillToProject(skill, ["claude"], projectDir)
+    const results = await deploySkillToProject(buildSkill(skillDir), ["claude"], projectDir)
     expect(results).toHaveLength(1)
     expect(results[0]?.status).toBe("copied")
 
     expect(await exists(path.join(existingTarget, "old.txt"))).toBe(false)
     expect(await exists(path.join(existingTarget, "SKILL.md"))).toBe(true)
+  })
+
+  it("skips generated deploy artifacts while copying required files", async () => {
+    const tmp = await mkTmp("skills-deploy-project-filter-")
+    const skillDir = path.join(tmp, "skill-source")
+    const projectDir = path.join(tmp, "project")
+
+    await mkdir(skillDir, { recursive: true })
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(skillDir, "SKILL.md"), "# Sample skill")
+    await writeFile(path.join(skillDir, "notes.txt"), "keep me")
+    await writeFile(path.join(skillDir, "trigger_evals.json"), "{\"generated\":true}")
+
+    const results = await deploySkillToProject(buildSkill(skillDir), ["claude"], projectDir)
+    expect(results).toHaveLength(1)
+    expect(results[0]?.status).toBe("copied")
+
+    const targetDir = path.join(projectDir, ".claude", "skills", "sample-skill")
+    expect(await exists(path.join(targetDir, "SKILL.md"))).toBe(true)
+    expect(await exists(path.join(targetDir, "notes.txt"))).toBe(true)
+    expect(await exists(path.join(targetDir, "trigger_evals.json"))).toBe(false)
+    expect(await exists(path.join(skillDir, "trigger_evals.json"))).toBe(true)
   })
 })
