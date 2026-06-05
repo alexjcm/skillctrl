@@ -1,6 +1,6 @@
 {
   "name": "skillctrl",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "CLI to manage and deploy AI agent skills",
   "license": "MIT",
   "type": "module",
@@ -48,15 +48,15 @@
     "cursor"
   ],
   "dependencies": {
-    "@clack/prompts": "~1.4.0",
-    "commander": "14.0.3",
+    "@clack/prompts": "~1.5.1",
+    "commander": "15.0.0",
     "fast-glob": "3.3.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.20.6",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.7"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

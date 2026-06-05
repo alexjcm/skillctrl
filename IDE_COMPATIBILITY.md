@@ -5,7 +5,7 @@
 | **Codex** | `~/.agents/skills/` | `.agents/skills/` |
 | **GitHub Copilot** | `~/.copilot/skills/` | `.github/skills/` |
 | **Antigravity** | `~/.gemini/antigravity/skills/` | `.agents/skills/` |
-| **Windsurf** | `~/.codeium/windsurf/skills/` | `.windsurf/skills/` |
+| **Windsurf (Devin Desktop)** | `~/.codeium/windsurf/skills/` | `.devin/skills/` |
 | **IntelliJ (Codeium)** | `~/.codeium/skills/` | `.windsurf/skills/` |
 | **Junie (JetBrains)** | `~/.junie/skills/` | `.junie/skills/` |
 | **Claude Code** | `~/.claude/skills/` | `.claude/skills/` |

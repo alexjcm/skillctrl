@@ -2,6 +2,7 @@ import * as clack from "@clack/prompts"
 import * as pc from "../ui/ansi.ts"
 import { getSkillSourceDir } from "../core/config/ide-paths.ts"
 import { loadExcludedRefs } from "../core/config/excluded-skills.ts"
+import { getPackageVersion } from "../core/package-version.ts"
 import { deployGlobalFlow } from "./flows/deploy-global.flow.ts"
 import { deployToProjectFlow } from "./flows/deploy-project.flow.ts"
 import { doctorFlow } from "./flows/doctor.flow.ts"
@@ -25,8 +26,9 @@ export interface RunMenuOptions {
 }
 
 export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
+  const version = await getPackageVersion()
   const linkedWorkspaceBadge = options.linkedWorkspaceInstall
-    ? ` ${pc.dim("(running from linked workspace)")}`
+    ? ` ${pc.dim(`(v${version} running from linked workspace)`)}`
     : ""
 
   clack.intro(pc.bold(pc.cyan(`✦ skillctrl${linkedWorkspaceBadge}`)))
@@ -61,15 +63,15 @@ export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
       message: "What would you like to do?",
       initialValue: lastAction,
       options: [
-        { value: "import-skill",       label: "Import skill from GitHub",                 hint: "→ URL or owner/repo" },
-        { value: "check-updates",      label: "Check & update imported skills",           hint: "→ imported skills" },
-        { value: "settings",           label: "Own Skills Dir",                           hint: "→ set own skills path" },
-        { value: "list",               label: "List available skill catalog" },
-        { value: "list-global",        label: "View global installations" },
-        { value: "deploy-project",     label: "Deploy skills to project/workspace",       hint: "→ project/workspace" },
-        { value: "deploy-global",      label: "Deploy skills globally",                   hint: "→ one or more skills (global)" },
-        { value: "delete",             label: "Delete skill(s)",                          hint: "→ imported or global" },
-        { value: "doctor",             label: "Doctor (diagnostics)" },
+        { value: "deploy-project",     label: "🚀 Deploy skills to project/workspace",       hint: "→ project/workspace" },
+        { value: "deploy-global",      label: "🚀 Deploy skills globally",                   hint: "→ one or more skills (global)" },
+        { value: "import-skill",       label: "📥 Import skill from GitHub",                 hint: "→ URL or owner/repo" },
+        { value: "check-updates",      label: "📥 Check & update imported skills",           hint: "→ imported skills" },
+        { value: "settings",           label: "⚙️ Own Skills Dir",                           hint: "→ set own skills path" },
+        { value: "list",               label: "⚙️ List available skill catalog" },
+        { value: "list-global",        label: "⚙️ View global installations" },
+        { value: "delete",             label: "⚙️ Delete skill(s)",                          hint: "→ imported or global" },
+        { value: "doctor",             label: "🔧 Doctor (diagnostics)" },
       ],
     })
 

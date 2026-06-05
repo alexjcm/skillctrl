@@ -38,7 +38,7 @@ export const IDE_PROJECT_PATHS = {
   codex:       [path.join(".agents", "skills")],
   copilot:     [path.join(".github", "skills")],
   intellij:    [path.join(".windsurf", "skills")],
-  windsurf:    [path.join(".windsurf", "skills")],
+  windsurf:    [path.join(".devin", "skills")],
   junie:       [path.join(".junie", "skills")],
   antigravity: [path.join(".agents", "skills")],
   claude:      [path.join(".claude", "skills")],
