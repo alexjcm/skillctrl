@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-06-17
 ### Changed
 - Updated Windsurf project deployment path from `.windsurf/skills/` to `.devin/skills/` to align with Devin Desktop migration.
 - Updated skill deploy copying to exclude generated `trigger_evals.json` artifacts from deployed skill folders while preserving the source skill contents.
 - Reorganized TUI menu with logical grouping and visual icons for improved UX.
+- Added dynamic version display for linked workspace development.
 
 ## [1.5.0] - 2026-05-26
 ### Added

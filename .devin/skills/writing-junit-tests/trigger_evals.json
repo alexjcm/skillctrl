@@ -1,0 +1,62 @@
+[
+  {
+    "query": "Write unit tests for this Java 8 service class using JUnit 4 and Mockito.",
+    "should_trigger": true
+  },
+  {
+    "query": "Necesito tests para esta clase Java, no especifique tipo pero quiero una base limpia y rapida.",
+    "should_trigger": true
+  },
+  {
+    "query": "Create tests for my Spring controller in Java 8. I did not ask for integration tests.",
+    "should_trigger": true
+  },
+  {
+    "query": "Ayudame a generar pruebas unitarias para un repository con logica custom, sin levantar contexto Spring.",
+    "should_trigger": true
+  },
+  {
+    "query": "Write an integration test for this repository update method using @DataJpaTest and SpringRunner.",
+    "should_trigger": true
+  },
+  {
+    "query": "Genera un test de integracion para mi controller con @WebMvcTest y MockMvc.",
+    "should_trigger": true
+  },
+  {
+    "query": "I need a full SpringBoot integration test for this flow with JUnit 4.",
+    "should_trigger": true
+  },
+  {
+    "query": "Quiero pruebas JUnit 4 para Java 8, idealmente con convenciones BDD en los nombres.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can you migrate my JUnit 4 tests to JUnit 5 with Jupiter and @ExtendWith?",
+    "should_trigger": false
+  },
+  {
+    "query": "Write pytest tests for my Python FastAPI endpoint.",
+    "should_trigger": false
+  },
+  {
+    "query": "Necesito ayuda para publicar un paquete npm en la registry publica.",
+    "should_trigger": false
+  },
+  {
+    "query": "Generate Cypress end-to-end tests for this React app.",
+    "should_trigger": false
+  },
+  {
+    "query": "How can I optimize this SQL query in Db2?",
+    "should_trigger": false
+  },
+  {
+    "query": "Document this Java class with JavaDoc comments.",
+    "should_trigger": false
+  },
+  {
+    "query": "Set up GitHub Actions to run tests in CI for my monorepo.",
+    "should_trigger": false
+  }
+]
