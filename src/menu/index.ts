@@ -2,7 +2,6 @@ import * as clack from "@clack/prompts"
 import * as pc from "../ui/ansi.ts"
 import { getSkillSourceDir } from "../core/config/ide-paths.ts"
 import { loadExcludedRefs } from "../core/config/excluded-skills.ts"
-import { getPackageVersion } from "../core/package-version.ts"
 import { deployGlobalFlow } from "./flows/deploy-global.flow.ts"
 import { deployToProjectFlow } from "./flows/deploy-project.flow.ts"
 import { doctorFlow } from "./flows/doctor.flow.ts"
@@ -23,10 +22,11 @@ import { FLOW_CANCELLED, FLOW_COMPLETED } from "./constants/flow-tokens.ts"
 
 export interface RunMenuOptions {
   linkedWorkspaceInstall?: boolean
+  cliVersion?: string
 }
 
 export async function runMenu(options: RunMenuOptions = {}): Promise<number> {
-  const version = await getPackageVersion()
+  const version = options.cliVersion || "unknown"
   const linkedWorkspaceBadge = options.linkedWorkspaceInstall
     ? ` ${pc.dim(`(v${version} running from linked workspace)`)}`
     : ""

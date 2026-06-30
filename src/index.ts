@@ -81,7 +81,10 @@ if (process.argv.length <= 2) {
   if (isInteractive) {
     try {
       const { runMenu } = await import("./menu/index.ts")
-      const exitCode = await runMenu({ linkedWorkspaceInstall })
+      const exitCode = await runMenu({
+        linkedWorkspaceInstall,
+        cliVersion: resolveCliVersion(),
+      })
       process.exit(exitCode)
     } catch (err) {
       log.error(err instanceof Error ? err.message : String(err))
