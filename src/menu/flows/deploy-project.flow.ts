@@ -23,9 +23,6 @@ import { FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED, FLOW_CONFIRM } 
 export async function deployToProjectFlow(): Promise<FlowResult> {
   type Step = "path" | "ide" | "skills" | typeof FLOW_CONFIRM
 
-  const isGitRepo = await exists(path.join(process.cwd(), ".git"))
-  const isNpmProject = await exists(path.join(process.cwd(), "package.json"))
-
   let step: Step = "path"
   let projectDir: string | null = null
   let ide: IdeTarget | null = null
@@ -37,14 +34,12 @@ export async function deployToProjectFlow(): Promise<FlowResult> {
       const promptOptions: Parameters<typeof clack.text>[0] = {
         message: "Enter project/workspace directory path:",
         placeholder: process.cwd(),
+        initialValue: process.cwd(),
         validate: (value) => {
           const trimmed = value?.trim() ?? ""
           if (!trimmed) return "Path cannot be empty"
           if (trimmed.toLowerCase() === FLOW_BACK) return
         },
-      }
-      if (isGitRepo || isNpmProject) {
-        promptOptions.initialValue = process.cwd()
       }
 
       const rawPath = await clack.text(promptOptions)
