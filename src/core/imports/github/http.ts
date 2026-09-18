@@ -15,7 +15,26 @@ export class GitHubApiError extends Error {
   }
 }
 
+let bypassAuthToken = false
+
+export function setBypassGitHubToken(bypass: boolean): void {
+  bypassAuthToken = bypass
+}
+
+export function isGitHubTokenBypassed(): boolean {
+  return bypassAuthToken
+}
+
+export function hasGitHubToken(): boolean {
+  return Boolean(process.env["GITHUB_TOKEN"]?.trim()) && !bypassAuthToken
+}
+
+export function isGitHubTokenConfiguredInEnv(): boolean {
+  return Boolean(process.env["GITHUB_TOKEN"]?.trim())
+}
+
 function authHeaderFromEnv(): string | undefined {
+  if (bypassAuthToken) return undefined
   const token = process.env["GITHUB_TOKEN"]?.trim()
   return token ? `Bearer ${token}` : undefined
 }

@@ -2,6 +2,8 @@ import path from "path"
 import { parseGitHubUrl, type GitHubRef } from "./url.ts"
 import {
   MAX_CONCURRENT_REQUESTS,
+  MSG_AUTH_FAILED,
+  MSG_AUTH_REQUIRED,
   MSG_INVALID_URL,
   MSG_NETWORK,
   MSG_NO_SKILLS,
@@ -11,7 +13,14 @@ import {
   REPO_SCAN_PATHS,
   TREE_PAYLOAD_MAX_BYTES,
 } from "./constants.ts"
-import { fetchJson, fetchJsonWithByteLimit, fetchText, formatRateLimitRetryMessage, GitHubApiError } from "./http.ts"
+import {
+  fetchJson,
+  fetchJsonWithByteLimit,
+  fetchText,
+  formatRateLimitRetryMessage,
+  GitHubApiError,
+  hasGitHubToken,
+} from "./http.ts"
 import {
   buildContentsApiUrl,
   buildGitTreeApiUrl,
@@ -301,6 +310,9 @@ function normalizeError(err: unknown): Error {
     if (err.status === 403) {
       return new Error(formatRateLimitRetryMessage(err.rateLimitResetAt))
     }
+    if (err.status === 401) {
+      return new Error(hasGitHubToken() ? MSG_AUTH_FAILED : MSG_AUTH_REQUIRED)
+    }
     return new Error(`GitHub API error (${err.status}). Please try again.`)
   }
 
@@ -310,7 +322,9 @@ function normalizeError(err: unknown): Error {
     err.message === MSG_RATE_LIMIT ||
     err.message === MSG_REPO_TREE_TOO_LARGE ||
     err.message === MSG_NO_SKILLS ||
-    err.message === MSG_NETWORK
+    err.message === MSG_NETWORK ||
+    err.message === MSG_AUTH_FAILED ||
+    err.message === MSG_AUTH_REQUIRED
   )) {
     return err
   }
@@ -344,3 +358,10 @@ export async function hydrateSkillCandidate(preview: SkillCandidatePreview): Pro
 }
 
 export type { GitHubFile, SkillCandidate, SkillCandidatePreview } from "./types.ts"
+export {
+  hasGitHubToken,
+  isGitHubTokenConfiguredInEnv,
+  isGitHubTokenBypassed,
+  setBypassGitHubToken,
+} from "./http.ts"
+export { MSG_AUTH_FAILED, MSG_AUTH_REQUIRED } from "./constants.ts"

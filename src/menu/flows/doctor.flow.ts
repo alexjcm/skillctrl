@@ -5,6 +5,11 @@ import { exists } from "../../core/system/fs.ts"
 import { env } from "../../env.ts"
 import { ALL_IDE_KEYS, IDE_BASE_DIRS, IDE_GLOBAL_PATHS, IDE_PROJECT_PATHS, getSkillSourceDir } from "../../core/config/ide-paths.ts"
 import { SKILLS_HOME, IMPORTED_DIR } from "../../core/config/user-config.ts"
+import {
+  hasGitHubToken,
+  isGitHubTokenBypassed,
+  isGitHubTokenConfiguredInEnv,
+} from "../../core/imports/github/index.ts"
 import { discoverCategories, discoverSkills } from "../../core/skills/discovery.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { log } from "../../ui/logger.ts"
@@ -56,6 +61,15 @@ export async function doctorFlow(): Promise<FlowResult> {
   // --- Imported skills dir ---
   const importedExists = await exists(IMPORTED_DIR)
   log.bullet("Imported skills", `${IMPORTED_DIR} ${importedExists ? pc.green("(found)") : pc.dim("(empty)")}`)
+
+  // --- GitHub token ---
+  if (hasGitHubToken()) {
+    log.bullet("GitHub token", `${pc.green("configured")} (via GITHUB_TOKEN)`)
+  } else if (isGitHubTokenConfiguredInEnv() && isGitHubTokenBypassed()) {
+    log.bullet("GitHub token", `${pc.yellow("bypassed")} (session fallback to unauthenticated)`)
+  } else {
+    log.bullet("GitHub token", `${pc.dim("not configured")} (unauthenticated limit: 60 req/h)`)
+  }
 
   // --- Catalog summary ---
   try {

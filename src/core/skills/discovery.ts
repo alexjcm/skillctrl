@@ -1,11 +1,37 @@
 import path from "path"
 import fg from "fast-glob"
 import { readdir, readFile } from "node:fs/promises"
+import { execSync } from "node:child_process"
 import { exists, existsSync } from "../system/fs.ts"
 import { isErrnoException } from "../system/errors.ts"
 import { getSkillSourceDir } from "../config/ide-paths.ts"
 import { IMPORTED_DIR } from "../config/user-config.ts"
 import type { Skill } from "../types.ts"
+
+let cachedOwnRepoUrl: string | null | undefined = undefined
+
+function resolveOwnRepoUrl(dir: string): string | undefined {
+  if (cachedOwnRepoUrl !== undefined) return cachedOwnRepoUrl ?? undefined
+  try {
+    const raw = execSync("git config --get remote.origin.url", {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1000,
+    }).trim()
+    if (raw) {
+      const normalized = raw
+        .replace(/^git@github\.com:/, "https://github.com/")
+        .replace(/\.git$/, "")
+      cachedOwnRepoUrl = normalized
+      return normalized
+    }
+  } catch {
+    // not a git repo or git not found
+  }
+  cachedOwnRepoUrl = null
+  return undefined
+}
 
 // ============================================================================
 // DISCOVER CATEGORIES
@@ -110,6 +136,16 @@ async function discoverSkillsInRoot(
   // Track uncategorized skill dirs to skip their subdirs (ambiguity guard)
   const uncategorizedDirs = new Set<string>()
 
+  let importedSourceMap: Map<string, string> | undefined
+  if (source === "imported") {
+    try {
+      const { getAllEntries } = await import("../imports/registry.ts")
+      importedSourceMap = new Map(getAllEntries().map(([ref, entry]) => [ref, entry.source]))
+    } catch {
+      // ignore
+    }
+  }
+
   for (const mdPath of allMdPaths) {
     const skillDir = path.dirname(mdPath)
     const parentDir = path.dirname(skillDir)
@@ -122,7 +158,18 @@ async function discoverSkillsInRoot(
       const ref = name
       uncategorizedDirs.add(path.normalize(skillDir))
       const description = await parseSkillDescription(mdPath)
-      skills.push({ ref, name, category: "", path: skillDir, ...(description ? { description } : {}), source })
+      const sourceUrl = source === "imported"
+        ? importedSourceMap?.get(ref)
+        : resolveOwnRepoUrl(root)
+      skills.push({
+        ref,
+        name,
+        category: "",
+        path: skillDir,
+        ...(description ? { description } : {}),
+        source,
+        ...(sourceUrl ? { sourceUrl } : {}),
+      })
     } else {
       // Categorized (depth 2): root/category/skill-name/SKILL.md
       // Skip if the category dir itself was already claimed as an uncategorized skill
@@ -133,7 +180,18 @@ async function discoverSkillsInRoot(
       const category = path.basename(categoryDir)
       const ref = path.join(category, name)
       const description = await parseSkillDescription(mdPath)
-      skills.push({ ref, name, category, path: skillDir, ...(description ? { description } : {}), source })
+      const sourceUrl = source === "imported"
+        ? importedSourceMap?.get(ref)
+        : resolveOwnRepoUrl(root)
+      skills.push({
+        ref,
+        name,
+        category,
+        path: skillDir,
+        ...(description ? { description } : {}),
+        source,
+        ...(sourceUrl ? { sourceUrl } : {}),
+      })
     }
   }
 

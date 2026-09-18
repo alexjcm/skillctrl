@@ -5,6 +5,8 @@ export const MSG_NO_SKILLS = "No skills found here. Each skill directory must co
 export const MSG_REPO_TREE_TOO_LARGE =
   "Repository is too large to scan automatically. Paste a direct URL to the skills dir."
 export const MSG_NETWORK = "Could not reach GitHub. Check your internet connection."
+export const MSG_AUTH_FAILED = "GitHub authentication failed (401 Bad credentials). Your GITHUB_TOKEN may be expired or invalid."
+export const MSG_AUTH_REQUIRED = "GitHub API error (401 Unauthorized)."
 
 export const MAX_CONCURRENT_REQUESTS = 8
 export const TREE_PAYLOAD_MAX_BYTES = 8 * 1024 * 1024

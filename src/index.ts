@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander"
-import fs from "fs"
-import { existsSync } from "node:fs"
+import fs, { existsSync } from "node:fs"
 import { EXIT_CODES } from "./core/exit-codes.ts"
 import { isRecord } from "./core/system/errors.ts"
 import { log } from "./ui/logger.ts"

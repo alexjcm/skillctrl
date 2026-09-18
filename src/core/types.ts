@@ -23,6 +23,8 @@ export interface Skill {
   description?: string
   /** Whether this skill belongs to the user's own skillsDir or was downloaded via import */
   source: "own" | "imported"
+  /** Remote source or repository URL if applicable */
+  sourceUrl?: string
 }
 
 // ============================================================================

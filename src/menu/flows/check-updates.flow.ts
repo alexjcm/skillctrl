@@ -5,22 +5,37 @@ import {
   type CheckReport,
 } from "../../core/imports/updates.ts"
 import { getAllEntries } from "../../core/imports/registry.ts"
+import {
+  hasGitHubToken,
+  setBypassGitHubToken,
+  MSG_AUTH_FAILED,
+} from "../../core/imports/github/index.ts"
 import type { FlowResult } from "../flow-result.ts"
 import { log } from "../../ui/logger.ts"
+import * as pc from "../../ui/ansi.ts"
 import { promptMultiselectWithBack } from "../helpers/prompt-multiselect-with-back.ts"
 import { runWithSpinner } from "../helpers/run-with-spinner.ts"
 import { FLOW_ALL, FLOW_BACK, FLOW_CANCEL, FLOW_CANCELLED, FLOW_COMPLETED } from "../constants/flow-tokens.ts"
 
+function isAuthError(message?: string): boolean {
+  if (!message) return false
+  return message === MSG_AUTH_FAILED || message.includes("401") || message.includes("Bad credentials")
+}
+
 function renderReport(report: CheckReport): void {
+  const sourceUrl = report.entry.source
   if (report.status === "up-to-date") {
     log.raw(`  ✔ ${report.ref}  — Up to date`)
+    if (sourceUrl) log.raw(`    ${pc.dim("↳ " + sourceUrl)}`)
     return
   }
   if (report.status === "update-available") {
     log.raw(`  ↑ ${report.ref}  — Update available`)
+    if (sourceUrl) log.raw(`    ${pc.dim("↳ " + sourceUrl)}`)
     return
   }
   log.raw(`  ✖ ${report.ref}  — Source unreachable${report.message ? ` (${report.message})` : ""}`)
+  if (sourceUrl) log.raw(`    ${pc.dim("↳ " + sourceUrl)}`)
 }
 
 async function selectReportsToUpdate(candidates: CheckReport[]): Promise<CheckReport[] | typeof FLOW_BACK | undefined> {
@@ -49,8 +64,10 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
     return FLOW_COMPLETED
   }
 
-  if (entries.length * 3 > 50) {
-    log.warn("This check may approach GitHub's unauthenticated API rate limit (60 req/hour).")
+  if (hasGitHubToken()) {
+    log.info("Using GitHub token from GITHUB_TOKEN.")
+  } else if (entries.length * 3 > 50) {
+    log.warn("Running unauthenticated. This check may approach GitHub's API rate limit (60 req/hour). Set GITHUB_TOKEN to increase limits.")
   }
 
   const reports = await runWithSpinner(
@@ -62,19 +79,57 @@ export async function checkUpdatesFlow(): Promise<FlowResult> {
       for (const [ref, entry] of entries) {
         const report = await buildUpdateReport(ref, entry)
         nextReports.push(report)
+        if (report.status === "unreachable" && isAuthError(report.message) && hasGitHubToken()) {
+          // Stop checking remaining skills when authentication fails on an active token
+          break
+        }
       }
       return nextReports
     }
   )
+
+  const authErrorReport = reports.find((r) => r.status === "unreachable" && isAuthError(r.message))
+  if (authErrorReport && hasGitHubToken()) {
+    renderReport(authErrorReport)
+    log.error("GitHub API returned 401 Unauthorized.")
+    log.warn("Your GITHUB_TOKEN appears to be invalid or expired.")
+
+    const decision = await clack.select({
+      message: "What would you like to do?",
+      options: [
+        { value: "retry-unauthenticated", label: "Retry without token", hint: "unauthenticated, 60 req/h limit" },
+        { value: FLOW_CANCEL, label: "Cancel" },
+      ],
+    })
+
+    if (clack.isCancel(decision) || decision === FLOW_CANCEL) {
+      return FLOW_CANCELLED
+    }
+
+    if (decision === "retry-unauthenticated") {
+      setBypassGitHubToken(true)
+      log.info("Retrying check without GitHub token...")
+      return checkUpdatesFlow()
+    }
+  }
 
   for (const report of reports) {
     renderReport(report)
   }
 
   const updatesAvailable = reports.filter((report) => report.status === "update-available")
+  const unreachable = reports.filter((report) => report.status === "unreachable")
+  const upToDate = reports.filter((report) => report.status === "up-to-date")
+
   if (updatesAvailable.length === 0) {
-    log.success("All imported skills are up to date.")
-    return FLOW_COMPLETED
+    if (unreachable.length === 0) {
+      log.success("All imported skills are up to date.")
+    } else if (upToDate.length === 0) {
+      log.error("Could not check remote sources (all skills failed to connect).")
+    } else {
+      log.warn(`Check completed with warnings: ${upToDate.length} up to date, ${unreachable.length} unreachable.`)
+    }
+    return unreachable.length > 0 && upToDate.length === 0 ? FLOW_CANCELLED : FLOW_COMPLETED
   }
 
   let selectedReports: CheckReport[] | null = null

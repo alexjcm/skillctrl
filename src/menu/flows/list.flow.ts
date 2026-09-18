@@ -40,6 +40,9 @@ export async function listFlow(): Promise<void> {
         ? `${s.name} ${pc.yellow("(imported)")}`
         : s.name
       log.bullet(label, s.description)
+      if (s.sourceUrl) {
+        log.raw(`    ${pc.dim("↳ " + s.sourceUrl)}`)
+      }
     }
   }
 }

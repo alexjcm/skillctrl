@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    // Environment setup & latest features (TypeScript 6.0 compatible)
+    // Environment setup & latest features (TypeScript 7.0 compatible)
     "target": "ES2024",
     "module": "ESNext",
     "lib": ["ES2024"],
@@ -13,16 +13,13 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     
-    // Best practices (explicit for TS 6.0)
+    // Best practices
     "strict": true,
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
-    "noUncheckedSideEffectImports": true,
-    
-    // TypeScript 6.0 deprecation warnings
-    "ignoreDeprecations": "6.0"
+    "noUncheckedSideEffectImports": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

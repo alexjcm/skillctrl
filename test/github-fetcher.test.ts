@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchSkillCandidatePreviewsFromInput } from "../src/core/imports/github/index.ts"
+import {
+  fetchSkillCandidatePreviewsFromInput,
+  hasGitHubToken,
+  setBypassGitHubToken,
+  MSG_AUTH_FAILED,
+  MSG_AUTH_REQUIRED,
+} from "../src/core/imports/github/index.ts"
 
 function jsonResponse(data: unknown, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
@@ -16,6 +22,7 @@ describe("github-fetcher critical behavior", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    setBypassGitHubToken(false)
     if (originalToken === undefined) delete process.env["GITHUB_TOKEN"]
     else process.env["GITHUB_TOKEN"] = originalToken
   })
@@ -262,5 +269,54 @@ describe("github-fetcher critical behavior", () => {
     await expect(
       fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
     ).rejects.toThrow("No skills found")
+  })
+
+  it("throws MSG_AUTH_FAILED on 401 when GITHUB_TOKEN is set", async () => {
+    process.env["GITHUB_TOKEN"] = "expired_or_invalid_token"
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      return jsonResponse({ message: "Bad credentials" }, 401)
+    }))
+
+    await expect(
+      fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    ).rejects.toThrow(MSG_AUTH_FAILED)
+  })
+
+  it("throws MSG_AUTH_REQUIRED on 401 when no token is set", async () => {
+    delete process.env["GITHUB_TOKEN"]
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      return jsonResponse({ message: "Requires authentication" }, 401)
+    }))
+
+    await expect(
+      fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    ).rejects.toThrow(MSG_AUTH_REQUIRED)
+  })
+
+  it("allows bypassing active GITHUB_TOKEN via setBypassGitHubToken", async () => {
+    process.env["GITHUB_TOKEN"] = "some_token"
+    expect(hasGitHubToken()).toBe(true)
+
+    setBypassGitHubToken(true)
+    expect(hasGitHubToken()).toBe(false)
+
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      return jsonResponse({ default_branch: "main" })
+    }))
+
+    try {
+      await fetchSkillCandidatePreviewsFromInput("tech-leads-club/agent-skills")
+    } catch {
+      // ignore
+    }
+
+    expect(calls.length).toBeGreaterThan(0)
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>
+    expect(headers["Authorization"]).toBeUndefined()
   })
 })

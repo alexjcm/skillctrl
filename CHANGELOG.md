@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-09-18
+
+### Added
+- Added repository source URL (`sourceUrl`) display in interactive TUI flows:
+  - Catalog listing (`List available skill catalog`) now displays the remote/git source URL beneath each skill.
+  - Global installations view (`View global installations`) now displays the repository source for matched installed skills.
+  - Updates check report (`Check & update imported skills`) now displays the repository URL alongside each result.
+- Added GitHub token authentication diagnostic to `Doctor (diagnostics)` flow.
+- Added prompt to retry without token (unauthenticated mode) when GitHub API returns HTTP 401 Unauthorized during update checks.
+
+### Fixed
+- Fixed misleading "All imported skills are up to date" success message when update checks failed or could not reach remote sources (`unreachable`).
+- Fixed generic 401 error handling: now explicitly diagnoses invalid or expired `GITHUB_TOKEN` credentials and stops redundant sequential failure requests.
+
 ### Changed
 - Always pre-fill the project/workspace directory path with the current working directory in the deploy flow.
 
